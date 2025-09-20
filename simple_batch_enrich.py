@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Simple Standalone Batch Enrichment for MVP
+Comprehensive Batch Enrichment
 
-Direct implementation without complex imports.
-Works immediately for MVP deployment.
+Uses the comprehensive enrichment service to store LLM output
+in ALL destination tables according to the database schema.
 """
 
 import requests
@@ -33,13 +33,46 @@ class SimpleAIEnricher:
         self.model = "qwen2.5:7b"
         self.db_manager = None
         
-        # Initialize database
+        # Initialize database and comprehensive service
         try:
             from config.database import DatabaseManager
+            from comprehensive_enrichment_service import ComprehensiveEnrichmentService
+            
             self.db_manager = DatabaseManager()
-            logger.info("Database manager initialized")
+            
+            # Create mock Ollama client for comprehensive service
+            class MockOllamaClient:
+                def generate_structured(self, prompt, temperature=0.1, max_tokens=1024):
+                    # Use the same direct Ollama call as before
+                    import requests
+                    payload = {
+                        "model": "qwen2.5:7b",
+                        "prompt": prompt,
+                        "stream": False,
+                        "options": {
+                            "temperature": temperature,
+                            "num_predict": max_tokens
+                        }
+                    }
+                    
+                    response = requests.post(
+                        "http://localhost:11434/api/generate",
+                        json=payload,
+                        timeout=120
+                    )
+                    
+                    if response.status_code == 200:
+                        result = response.json()
+                        return result.get('response', '').strip()
+                    return None
+            
+            # Initialize comprehensive enrichment service
+            ollama_client = MockOllamaClient()
+            self.comprehensive_service = ComprehensiveEnrichmentService(ollama_client, self.db_manager)
+            
+            logger.info("Database manager and comprehensive service initialized")
         except Exception as e:
-            logger.error(f"Failed to initialize database: {e}")
+            logger.error(f"Failed to initialize services: {e}")
             raise
     
     def analyze_sentiment(self, content: str) -> Optional[Dict[str, Any]]:
@@ -224,106 +257,29 @@ Consider the main subject matter and themes."""
             return 'other'
     
     def enrich_article(self, article: Dict[str, Any]) -> bool:
-        """Enrich a single article with AI analysis."""
+        """Enrich a single article using comprehensive enrichment service."""
+        article_id = article.get('id')
+        
         try:
-            article_id = article.get('id')
-            title = article.get('title', '')
-            description = article.get('description', '')
-            content = article.get('content', '')
+            # Use comprehensive enrichment service
+            success = self.comprehensive_service.process_article(article)
             
-            # Combine content for analysis
-            full_content = f"{title} {description} {content}".strip()
-            
-            if len(full_content) < 50:
-                logger.warning(f"Article {article_id} too short, skipping")
-                return False
-            
-            # Truncate if too long
-            if len(full_content) > 2000:
-                full_content = full_content[:2000] + "..."
-            
-            logger.info(f"Enriching article {article_id}: {title[:50]}...")
-            
-            # Analyze sentiment
-            sentiment_result = self.analyze_sentiment(full_content)
-            
-            # Extract keywords
-            keywords = self.extract_keywords(full_content)
-            
-            # Classify category
-            category = self.classify_category(full_content)
-            
-            # Prepare update data
-            update_data = {}
-            
-            if sentiment_result:
-                sentiment = sentiment_result.get('sentiment')
-                sentiment_score = sentiment_result.get('sentiment_score', 0.0)
-                confidence = sentiment_result.get('confidence', 0.0)
-                
-                # Map to French labels if needed
-                sentiment_mapping = {
-                    'positive': 'positif',
-                    'negative': 'négatif', 
-                    'neutral': 'neutre',
-                    'positif': 'positif',
-                    'négatif': 'négatif',
-                    'neutre': 'neutre'
-                }
-                
-                if sentiment and sentiment.lower() in sentiment_mapping:
-                    french_sentiment = sentiment_mapping[sentiment.lower()]
-                    update_data['sentiment'] = french_sentiment
-                    update_data['sentiment_score'] = sentiment_score
-                    logger.info(f"  Sentiment: {french_sentiment} ({sentiment_score:.2f})")
-            
-            if keywords:
-                # Store keywords as JSON string
-                update_data['keywords'] = json.dumps(keywords[:10], ensure_ascii=False)
-                logger.info(f"  Keywords: {', '.join(keywords[:5])}")
-            
-            if category and category != 'other':
-                category_mapping = {
-                    'politics': 'Politique',
-                    'economy': 'Économie',
-                    'society': 'Société', 
-                    'culture': 'Culture',
-                    'sports': 'Sport',
-                    'security': 'Sécurité',
-                    'international': 'International',
-                    'other': 'Autre'
-                }
-                
-                french_category = category_mapping.get(category, category)
-                update_data['category'] = french_category
-                logger.info(f"  Category: {french_category}")
-            
-            # Update database
-            if update_data:
-                response = self.db_manager.client.table("articles") \
-                    .update(update_data) \
-                    .eq("id", article_id) \
-                    .execute()
-                
-                if response.data:
-                    logger.info(f"  ✅ Article {article_id} enriched successfully")
-                    return True
-                else:
-                    logger.error(f"  ❌ Failed to update article {article_id}")
-                    return False
+            if success:
+                logger.info(f"  ✅ Article {article_id} comprehensively enriched")
+                return True
             else:
-                logger.warning(f"  ⚠️  No enrichment data for article {article_id}")
+                logger.error(f"  ❌ Failed to enrich article {article_id}")
                 return False
                 
         except Exception as e:
-            logger.error(f"Error enriching article {article.get('id')}: {e}")
+            logger.error(f"Error enriching article {article_id}: {e}")
             return False
     
     def get_articles_to_process(self, limit: int, days_back: Optional[int] = None) -> List[Dict[str, Any]]:
-        """Get articles that need enrichment."""
+        """Get articles that need enrichment including source_id and content_hash."""
         try:
             query = self.db_manager.client.table("articles") \
-                .select("id, title, description, content, pub_date") \
+                .select("id, title, description, content, pub_date, source_id, content_hash") \
                 .is_("sentiment", "null")
             
             if days_back:
@@ -339,8 +295,8 @@ Consider the main subject matter and themes."""
             logger.error(f"Failed to fetch articles: {e}")
             return []
     
-    def process_articles_batch(self, limit: int = 10, days_back: Optional[int] = None):
-        """Process a batch of articles."""
+    def process_articles_batch(self, limit: int, days_back: Optional[int] = None):
+        """Process a batch of articles for enrichment with proper state tracking."""
         logger.info(f"Starting batch processing - limit: {limit}, days_back: {days_back}")
         
         # Get articles to process
@@ -352,34 +308,71 @@ Consider the main subject matter and themes."""
         
         print(f"📰 Found {len(articles)} articles to process")
         
+        # Process each article with comprehensive tracking
         successful = 0
         failed = 0
         start_time = time.time()
+        batch_start_time = datetime.now()
         
         for i, article in enumerate(articles, 1):
-            print(f"\n🔄 Processing article {i}/{len(articles)}: {article.get('title', 'No title')[:50]}...")
+            title = article.get('title', 'No title')[:50]
+            print(f"\n🔄 Processing article {i}/{len(articles)}: {title}...")
+            logger.info(f"Enriching article {i}: {title}...")
             
-            if self.enrich_article(article):
-                successful += 1
-                print(f"   ✅ Success")
-            else:
+            try:
+                if self.enrich_article(article):
+                    successful += 1
+                    print("   ✅ Success")
+                else:
+                    failed += 1
+                    print("   ❌ Failed")
+                    
+                    # Update enrichment state for failure
+                    source_id = article.get('source_id')
+                    if source_id:
+                        self.comprehensive_service.update_enrichment_state_failure('article', source_id)
+                        
+            except Exception as e:
                 failed += 1
-                print(f"   ❌ Failed")
-            
-            # Small delay between articles
-            time.sleep(1)
+                print(f"   💥 Error: {e}")
+                logger.error(f"Article {i} processing error: {e}")
+                
+                # Update enrichment state for failure
+                source_id = article.get('source_id')
+                if source_id:
+                    self.comprehensive_service.update_enrichment_state_failure('article', source_id)
         
-        # Summary
+        # Calculate statistics
         total_time = time.time() - start_time
+        avg_time = total_time / len(articles) if articles else 0
         success_rate = (successful / len(articles)) * 100 if articles else 0
+        processing_duration_ms = int(total_time * 1000)
         
+        # Log batch processing results
+        try:
+            self.comprehensive_service.log_enrichment_batch(
+                content_type='article',
+                source_id=None,  # Mixed sources in batch
+                items_processed=len(articles),
+                items_successful=successful,
+                items_failed=failed,
+                processing_duration_ms=processing_duration_ms,
+                started_at=batch_start_time,
+                batch_size=limit
+            )
+        except Exception as e:
+            logger.error(f"Failed to log batch results: {e}")
+        
+        # Display summary
         print(f"\n📊 Batch Processing Complete!")
         print(f"   Total Articles: {len(articles)}")
         print(f"   Successful: {successful}")
         print(f"   Failed: {failed}")
         print(f"   Success Rate: {success_rate:.1f}%")
         print(f"   Processing Time: {total_time:.1f}s")
-        print(f"   Avg Time per Article: {total_time/len(articles):.1f}s")
+        print(f"   Avg Time per Article: {avg_time:.1f}s")
+        print(f"   📊 Batch logged to enrichment_log table")
+        print(f"   📊 Source states updated in enrichment_state table")
 
 def main():
     """Main function."""
