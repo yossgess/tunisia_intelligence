@@ -1,4 +1,5 @@
 from datetime import datetime, timezone, date
+from time import mktime
 from typing import Any, Optional
 import re
 import logging
@@ -15,6 +16,8 @@ def parse_date_enhanced(entry: Any) -> str:
     Returns:
         ISO 8601 formatted date string in UTC
     """
+    # Removed debug logging for performance optimization
+    
     date_fields = [
         ('published_parsed', 'Published parsed'),
         ('updated_parsed', 'Updated parsed'),
@@ -23,14 +26,20 @@ def parse_date_enhanced(entry: Any) -> str:
         ('updated', 'Updated string'),
         ('date', 'Date string'),
         ('dc_date', 'Dublin Core date'),
-        ('pubDate', 'pubDate string')
+        ('pubDate', 'pubDate string'),
+        ('pub_date', 'Pub date string')  # Add this common field
     ]
     
     for field, description in date_fields:
-        if not hasattr(entry, field):
-            continue
+        # Check both attribute access and dictionary access
+        field_value = None
+        if hasattr(entry, field):
+            field_value = getattr(entry, field)
+        elif hasattr(entry, '_data') and field in entry._data:
+            field_value = entry._data[field]
+        elif hasattr(entry, '__contains__') and field in entry:
+            field_value = entry[field]
             
-        field_value = getattr(entry, field)
         if not field_value:
             continue
             
@@ -46,8 +55,8 @@ def parse_date_enhanced(entry: Any) -> str:
                 if dt:
                     return dt.isoformat()
                     
-        except Exception as e:
-            logger.debug(f"Date parsing failed for {field} ({description}): {e}")
+        except Exception:
+            # Silently continue to next field for performance
             continue
     
     # Fallback: current time in UTC
@@ -73,10 +82,11 @@ def parse_date_string(date_str: str) -> Optional[datetime]:
         '%a, %d %b %Y %H:%M:%S %z',  # RFC 822
         '%Y-%m-%dT%H:%M:%S%z',        # ISO 8601 with timezone
         '%Y-%m-%dT%H:%M:%S.%f%z',     # ISO 8601 with microseconds and timezone
-        '%Y-%m-%d %H:%M:%S',           # SQL format
+        '%Y-%m-%d %H:%M:%S',           # SQL format (used by extractor utils)
         '%Y-%m-%d',                    # Just date
         
         # Common web formats
+        '%a, %d %b %Y %H:%M:%S %Z',   # RFC 822 with timezone name
         '%d %b %Y %H:%M:%S %Z',
         '%d %B %Y %H:%M:%S',
         '%m/%d/%Y %H:%M:%S',

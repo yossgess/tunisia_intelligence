@@ -11,6 +11,7 @@ Parses https://africanmanager.com/feed/ and returns a normalized list of entries
 from __future__ import annotations
 
 from typing import List, Dict
+import feedparser
 from .utils import extract_standard_fields
 
 def extract(url: str = "https://africanmanager.com/feed/") -> List[Dict[str, str]]:

@@ -31,6 +31,7 @@ from .rtci_extractor import extract as extract_rtci
 from .radiomonastir_extractor import extract as extract_radiomonastir
 from .radionationale_extractor import extract as extract_radionationale
 from .radiosfax_extractor import extract as extract_radiosfax
+from .radiojeunes_extractor import extract as extract_radiojeunes
 from .radiomedtunisie_extractor import extract as extract_radiomed
 from .inkyfada_extractor import extract as extract_inkyfada
 from .ftdes_extractor import extract as extract_ftdes
@@ -40,6 +41,7 @@ from .businessnews_extractor import extract as extract_businessnews
 from .jawharafm_extractor import extract as extract_jawharafm
 from .jawharafm_politics_extractor import extract as extract_jawharafm_politics
 from .jawharafm_cat_88_1_2_extractor import extract as extract_jawharafm_cat_88_1_2
+from .mosaiquefm_extractor import extract as extract_mosaiquefm
 
 
 # Exact feed URL registry
@@ -63,15 +65,17 @@ EXTRACTOR_REGISTRY: Dict[str, Callable[..., list]] = {
     "https://ftdes.net/feed/": extract_ftdes,
 
     # Radios / media
+    "https://www.mosaiquefm.net/ar/rss": extract_mosaiquefm,
     "https://radioexpressfm.com/fr/feed/": extract_radioexpress,
     "https://www.radiotunisienne.tn/articles/rss": extract_radiotunisienne,
     "https://www.radiotataouine.tn/articles/rss": extract_radiotataouine,
     "https://www.radiogafsa.tn/articles/rss": extract_radiogafsa,
     "https://www.radiokef.tn/articles/rss": extract_radiokef,
-    "https://www.rtci.tn/articles/rss": extract_rtci,
+    "https://www.rtci.tn/feed/": extract_rtci,
     "https://www.radiomonastir.tn/articles/rss": extract_radiomonastir,
     "https://www.radionationale.tn/articles/rss": extract_radionationale,
     "https://www.radiosfax.tn/articles/rss": extract_radiosfax,
+    "https://www.radiojeunes.tn/articles/rss": extract_radiojeunes,
     "https://radiomedtunisie.com/feed/": extract_radiomed,
     "https://www.nessma.tv/fr/rss/news/7": extract_nessma,
     "https://oasis-fm.net/feed/": extract_oasis,
@@ -109,8 +113,10 @@ DOMAIN_REGISTRY: Dict[str, Callable[..., list]] = {
     "radiomonastir.tn": extract_radiomonastir,
     "radionationale.tn": extract_radionationale,
     "radiosfax.tn": extract_radiosfax,
+    "radiojeunes.tn": extract_radiojeunes,
     "radiomedtunisie.com": extract_radiomed,
     "nessma.tv": extract_nessma,
     "oasis-fm.net": extract_oasis,
+    "mosaiquefm.net": extract_mosaiquefm,
     "jawharafm.net": extract_jawharafm,
 }
