@@ -85,16 +85,24 @@ class Article(BaseModel):
     id: Optional[int] = None
     title: str
     description: Optional[str] = None
-    category: Optional[str] = None
-    link: str
+    content: Optional[str] = None
+    link: str  # Keep as 'link' to match database schema
     pub_date: Optional[datetime] = None
     media_url: Optional[str] = None
     created_at: Optional[datetime] = None
-    content: Optional[str] = None
+    updated_at: Optional[datetime] = None
+    source_id: Optional[int] = None
+    guid: Optional[str] = None  # Add guid field from schema
+    # Content hash for deduplication
+    content_hash: Optional[str] = None
+    # AI enrichment fields (these are in separate tables in the new schema)
     sentiment: Optional[str] = None
+    sentiment_score: Optional[float] = None
     keywords: Optional[str] = None
     summary: Optional[str] = None
-    source_id: Optional[int] = None
+    category_id: Optional[int] = None
+    # Vector embedding for semantic search
+    embedding: Optional[List[float]] = None
     
     class Config:
         from_attributes = True
@@ -138,7 +146,7 @@ class DatabaseManager:
             
             # Check if a record exists for this source_id
             existing = self.client.table("parsing_state") \
-                .select("source_id") \
+                .select("*") \
                 .eq("source_id", state.source_id) \
                 .execute()
             
@@ -188,10 +196,24 @@ class DatabaseManager:
             # Keep 'link' as is - no mapping needed
             # The database table uses 'link' column, not 'url'
             
-            # Insert or update the article
-            response = self.client.table("articles") \
-                .upsert(article_data, on_conflict='link') \
+            # Check if article already exists by link
+            existing = self.client.table("articles") \
+                .select("id") \
+                .eq("link", article_data['link']) \
+                .limit(1) \
                 .execute()
+            
+            if existing.data:
+                # Article exists, update it
+                response = self.client.table("articles") \
+                    .update(article_data) \
+                    .eq("link", article_data['link']) \
+                    .execute()
+            else:
+                # Article doesn't exist, insert it
+                response = self.client.table("articles") \
+                    .insert(article_data) \
+                    .execute()
             
             return Article(**response.data[0]) if response.data else None
             
@@ -221,7 +243,7 @@ class DatabaseManager:
             if 'articles_fetched' not in log_data:
                 log_data['articles_fetched'] = 0
             
-            # Insert the log entry - use singular table name
+            # Insert the log entry - use plural table name to match schema
             response = self.client.table("parsing_log") \
                 .insert(log_data) \
                 .execute()
@@ -231,3 +253,71 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error creating parsing log: {e}")
             return None
+    
+    # Facebook/Social Media operations
+    def get_facebook_sources(self) -> List[Source]:
+        """Fetch all Facebook sources from the database."""
+        response = self.client.table("sources") \
+            .select("*") \
+            .eq("source_type", "facebook") \
+            .eq("is_active", True) \
+            .execute()
+        return [Source(**item) for item in response.data]
+    
+    def insert_social_media_post(self, post_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Insert a social media post."""
+        try:
+            # Convert datetime objects to ISO format strings
+            for field in ['publish_date', 'created_at', 'updated_at']:
+                if field in post_data and post_data[field] is not None:
+                    if hasattr(post_data[field], 'isoformat'):
+                        post_data[field] = post_data[field].isoformat()
+            
+            response = self.client.table("social_media_posts") \
+                .upsert(post_data, on_conflict='post_id') \
+                .execute()
+            
+            return response.data[0] if response.data else None
+            
+        except Exception as e:
+            logger.error(f"Error inserting social media post: {e}")
+            return None
+    
+    def insert_social_media_reactions(self, reactions_data: List[Dict[str, Any]]) -> bool:
+        """Insert social media post reactions."""
+        try:
+            if not reactions_data:
+                return True
+                
+            response = self.client.table("social_media_post_reactions") \
+                .upsert(reactions_data, on_conflict='post_id,reaction_type') \
+                .execute()
+            
+            return len(response.data) > 0
+            
+        except Exception as e:
+            logger.error(f"Error inserting social media reactions: {e}")
+            return False
+    
+    def insert_social_media_comments(self, comments_data: List[Dict[str, Any]]) -> bool:
+        """Insert social media comments."""
+        try:
+            if not comments_data:
+                return True
+            
+            # Convert datetime objects to ISO format strings
+            for comment in comments_data:
+                for field in ['created_time', 'created_at', 'updated_at']:
+                    if field in comment and comment[field] is not None:
+                        if hasattr(comment[field], 'isoformat'):
+                            comment[field] = comment[field].isoformat()
+            
+            response = self.client.table("social_media_comments") \
+                .upsert(comments_data, on_conflict='comment_id') \
+                .execute()
+            
+            return len(response.data) > 0
+            
+        except Exception as e:
+            logger.error(f"Error inserting social media comments: {e}")
+            return False

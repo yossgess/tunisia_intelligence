@@ -48,7 +48,7 @@ class UltraMinimalFacebookLoader:
         self.facebook_extractor = UltraMinimalFacebookExtractor(self.app_token, api_version)
         
         # Configuration for ultra-minimal processing
-        self.max_pages_per_run = 20  # Can handle more with ultra-minimal calls
+        self.max_pages_per_run = 53  # Process all Facebook sources
         self.priority_file = Path("facebook_page_priorities.json")
         self.page_priorities = self._load_page_priorities()
     
@@ -259,35 +259,41 @@ class UltraMinimalFacebookLoader:
             return None
     
     def _update_parsing_state(self, source_info: Dict[str, Any], posts: List[Dict[str, Any]]):
-        """Update parsing state with latest processed post"""
+        """Update parsing state for a source"""
         try:
             source_id = source_info.get('id')
             if not source_id or not posts:
                 return
             
-            # Get the most recent post (posts are usually ordered by created_time desc)
-            latest_post = posts[0]
-            latest_post_id = latest_post.get('id')
-            latest_post_time = latest_post.get('created_time')
+            # Get the most recent post
+            latest_post = max(posts, key=lambda p: p.get('created_time', ''))
             
-            if not latest_post_id:
-                return
-            
-            # Create content hash for duplicate detection
-            content_hash = self._generate_content_hash(latest_post)
-            
-            parsing_state_data = {
-                "source_id": source_id,
-                "last_processed_post_id": latest_post_id,
-                "last_processed_time": latest_post_time,
-                "last_content_hash": content_hash,
-                "updated_at": datetime.now().isoformat()
+            # Prepare state data
+            state_data = {
+                'source_id': source_id,
+                'last_parsed_at': datetime.now().isoformat(),
+                'last_article_link': latest_post.get('permalink_url', ''),
+                'last_article_guid': latest_post.get('id', '')
             }
             
-            # Upsert parsing state
-            response = self.client.table("parsing_state") \
-                .upsert(parsing_state_data, on_conflict='source_id') \
+            # Check if parsing state exists for this source
+            existing = self.client.table("parsing_state") \
+                .select("id") \
+                .eq("source_id", source_id) \
+                .limit(1) \
                 .execute()
+            
+            if existing.data:
+                # Update existing parsing state
+                self.client.table("parsing_state") \
+                    .update(state_data) \
+                    .eq("source_id", source_id) \
+                    .execute()
+            else:
+                # Insert new parsing state
+                self.client.table("parsing_state") \
+                    .insert(state_data) \
+                    .execute()
             
             logger.debug(f"Updated parsing state for source {source_id}")
             
@@ -317,8 +323,8 @@ class UltraMinimalFacebookLoader:
                 return False  # No previous state, not a duplicate
             
             # Check by post ID first
-            last_processed_id = parsing_state.get('last_processed_post_id')
-            if last_processed_id and post.get('id') == last_processed_id:
+            last_parsed_id = parsing_state.get('last_article_guid')
+            if last_parsed_id and post.get('id') == last_parsed_id:
                 return True
             
             # Check by content hash
@@ -337,22 +343,18 @@ class UltraMinimalFacebookLoader:
     def _log_parsing_results(self, sources_processed: int, posts_loaded: int, 
                            reactions_loaded: int, comments_loaded: int, 
                            api_calls: int, processing_time: float, errors: int):
-        """Log parsing results to parsing_log table"""
+        """Log parsing results to database - use correct table name"""
         try:
             log_data = {
-                "source_type": "facebook",
-                "sources_processed": sources_processed,
-                "posts_loaded": posts_loaded,
-                "reactions_loaded": reactions_loaded,
-                "comments_loaded": comments_loaded,
-                "api_calls_made": api_calls,
-                "processing_time_seconds": processing_time,
-                "errors_count": errors,
-                "efficiency_calls_per_source": api_calls / sources_processed if sources_processed > 0 else 0,
-                "created_at": datetime.now().isoformat()
+                'source_id': None,  # This is a batch operation
+                'started_at': datetime.now().isoformat(),
+                'finished_at': datetime.now().isoformat(),
+                'articles_fetched': posts_loaded,
+                'status': 'success' if errors == 0 else 'partial',
+                'error_message': f"{errors} errors encountered" if errors > 0 else None
             }
             
-            response = self.client.table("parsing_log") \
+            self.client.table("parsing_log") \
                 .insert(log_data) \
                 .execute()
             
@@ -399,7 +401,7 @@ class UltraMinimalFacebookLoader:
             for post in new_posts:
                 try:
                     # Prepare ultra-minimal post data
-                    post_data = self._prepare_post_data_ultra_minimal(post, account_name)
+                    post_data = self._prepare_post_data_ultra_minimal(post, account_name, source_info.get('id'))
                     if post_data:
                         post_data_batch.append(post_data)
                 
@@ -449,7 +451,7 @@ class UltraMinimalFacebookLoader:
             for post in posts:
                 try:
                     # Prepare ultra-minimal post data
-                    post_data = self._prepare_post_data_ultra_minimal(post, account_name)
+                    post_data = self._prepare_post_data_ultra_minimal(post, account_name, source_info.get('id'))
                     if post_data:
                         post_data_batch.append(post_data)
                 
@@ -479,7 +481,7 @@ class UltraMinimalFacebookLoader:
             "comments_loaded": comments_loaded
         }
     
-    def _prepare_post_data_ultra_minimal(self, post: Dict[str, Any], account_name: str) -> Optional[Dict[str, Any]]:
+    def _prepare_post_data_ultra_minimal(self, post: Dict[str, Any], account_name: str, source_id: int = None) -> Optional[Dict[str, Any]]:
         """Prepare ultra-minimal post data for database insertion"""
         try:
             # Parse publish date
@@ -497,12 +499,12 @@ class UltraMinimalFacebookLoader:
                 return None  # Skip posts with no content or URL
             
             return {
+                "source_id": source_id,
                 "social_media": "facebook",
                 "account": account_name,
                 "content": content,
                 "publish_date": publish_date.isoformat() if publish_date else None,
                 "url": post.get('permalink_url'),
-                "content_type": "status",
                 "created_at": datetime.now().isoformat(),
                 "updated_at": datetime.now().isoformat()
             }
@@ -517,15 +519,31 @@ class UltraMinimalFacebookLoader:
             if not post_data_batch:
                 return 0
             
-            response = self.client.table("social_media_posts") \
-                .upsert(post_data_batch, on_conflict='url') \
-                .execute()
+            # Insert posts individually to handle duplicates properly
+            inserted_count = 0
+            for post_data in post_data_batch:
+                # Check if post already exists by url
+                existing = self.client.table("social_media_posts") \
+                    .select("id") \
+                    .eq("url", post_data['url']) \
+                    .limit(1) \
+                    .execute()
+                
+                if existing.data:
+                    # Post exists, update it
+                    self.client.table("social_media_posts") \
+                        .update(post_data) \
+                        .eq("url", post_data['url']) \
+                        .execute()
+                else:
+                    # Post doesn't exist, insert it
+                    self.client.table("social_media_posts") \
+                        .insert(post_data) \
+                        .execute()
+                inserted_count += 1
             
-            if response.data:
-                logger.info(f"Batch inserted {len(response.data)} posts")
-                return len(response.data)
-            
-            return 0
+            logger.info(f"Processed {inserted_count} posts")
+            return inserted_count
             
         except Exception as e:
             logger.error(f"Error batch inserting posts: {e}")

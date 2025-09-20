@@ -184,7 +184,7 @@ class TestDatabaseManager:
             {
                 "id": 1,
                 "title": "Test Article",
-                "url": "https://example.com/article",
+                "link": "https://example.com/article",
                 "description": "Test description",
                 "content": "Test content",
                 "source_id": 1
@@ -209,7 +209,7 @@ class TestDatabaseManager:
         assert result is not None
         assert isinstance(result, Article)
         assert result.title == "Test Article"
-        assert result.link == "https://example.com/article"  # Should be converted back from 'url'
+        assert result.link == "https://example.com/article"  # Uses 'link' field consistently
         
         # Verify upsert was called
         mock_table.upsert.assert_called_once()

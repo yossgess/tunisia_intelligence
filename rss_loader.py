@@ -183,7 +183,7 @@ class RSSLoader:
                 'source_id': int,
                 'source_name': str,
                 'articles_processed': int,
-                'status': str ('success' or 'error'),
+                'status': str ('success' or 'failed'),
                 'error': Optional[str],
                 'processing_time': float,
                 'start_time': datetime,
@@ -346,7 +346,7 @@ class RSSLoader:
             
         except Exception as e:
             logger.error(f"Error processing source {source.name}: {e}", exc_info=True)
-            result['status'] = 'error'
+            result['status'] = 'failed'
             result['error'] = str(e)
             # Record error in monitoring
             get_metrics_collector().record_error(source.id, "source_processing", str(e))
@@ -557,7 +557,12 @@ class RSSLoader:
                     article_data['category'] = str(category)
             
             # Ensure all required fields are present and properly formatted
-            article_data['link'] = article_data.pop('url', article_data.get('link', ''))
+            # Keep 'link' field consistent with database schema
+            if 'url' in article_data and 'link' not in article_data:
+                article_data['link'] = article_data.pop('url')
+            elif 'url' in article_data:
+                # Remove 'url' if both exist, keep 'link'
+                article_data.pop('url', None)
             
             # Create Article instance with the correct field names
             article = Article(
@@ -616,7 +621,7 @@ class RSSLoader:
                     result = self.process_source(source)
                     if result:
                         total_articles += result.get('articles_processed', 0)
-                        if result.get('status') == 'error':
+                        if result.get('status') == 'failed':
                             sources_with_errors += 1
                         sources_processed += 1
                 except Exception as e:
@@ -751,6 +756,8 @@ def main():
                        help='Force process all articles, ignoring last processed state')
     parser.add_argument('--debug', action='store_true',
                        help='Enable debug logging')
+    parser.add_argument('--limit', type=int, default=None,
+                       help='Limit number of sources to process (for testing)')
     args = parser.parse_args()
     
     # Set debug logging if requested
