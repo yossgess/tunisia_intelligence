@@ -45,6 +45,18 @@ class UnifiedExtractor:
             logger.debug(f"Found exact match in extractor registry: {extractor.__name__ if hasattr(extractor, '__name__') else str(extractor)}")
             return extractor
         
+        # Try HTTP/HTTPS variant if exact match fails
+        if url.startswith('https://'):
+            http_url = url.replace('https://', 'http://', 1)
+            if http_url in self.extractor_registry:
+                logger.debug(f"Found HTTP variant match for HTTPS URL: {http_url}")
+                return self.extractor_registry[http_url]
+        elif url.startswith('http://'):
+            https_url = url.replace('http://', 'https://', 1)
+            if https_url in self.extractor_registry:
+                logger.debug(f"Found HTTPS variant match for HTTP URL: {https_url}")
+                return self.extractor_registry[https_url]
+        
         # Try domain match
         try:
             parsed_url = urlparse(url)
@@ -148,7 +160,21 @@ class UnifiedExtractor:
                             thread.join(1)  # Give thread a moment to finish
                 
                 # Run the extractor with timeout
-                entries = run_with_timeout(timeout, extractor, url)
+                # For HTTP/HTTPS mismatches, try to use the correct URL from the extractor
+                try:
+                    entries = run_with_timeout(timeout, extractor, url)
+                except Exception as url_error:
+                    # If there's an SSL or connection error, try with the opposite protocol
+                    if ('ssl' in str(url_error).lower() or 'certificate' in str(url_error).lower()) and url.startswith('https://'):
+                        http_url = url.replace('https://', 'http://', 1)
+                        logger.warning(f"SSL error with HTTPS, trying HTTP variant: {http_url}")
+                        entries = run_with_timeout(timeout, extractor, http_url)
+                    elif 'connection' in str(url_error).lower() and url.startswith('http://'):
+                        https_url = url.replace('http://', 'https://', 1)
+                        logger.warning(f"Connection error with HTTP, trying HTTPS variant: {https_url}")
+                        entries = run_with_timeout(timeout, extractor, https_url)
+                    else:
+                        raise url_error
                 
                 if not isinstance(entries, list):
                     logger.warning(f"Extractor did not return a list of entries for {url}")

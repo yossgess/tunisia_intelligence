@@ -11,7 +11,9 @@ Parses https://www.mosaiquefm.net/ar/rss and returns a normalized list of entrie
 from __future__ import annotations
 
 from typing import List, Dict
-from .utils import extract_standard_fields
+import feedparser
+from bs4 import BeautifulSoup
+import html
 
 def extract(url: str = "https://www.mosaiquefm.net/ar/rss") -> List[Dict[str, str]]:
     """
@@ -23,53 +25,69 @@ def extract(url: str = "https://www.mosaiquefm.net/ar/rss") -> List[Dict[str, st
     Returns:
         List of dictionaries containing news items with title, link, description, pub_date, and content
     """
-    import feedparser
-    import requests
-    from bs4 import BeautifulSoup
+    # Parse the RSS feed
+    feed = feedparser.parse(url)
     
-    try:
-        # First try with feedparser's built-in handling
-        feed = feedparser.parse(url)
+    results = []
+    
+    # Process each item in the feed
+    for entry in feed.entries:
+        # Extract and clean each field
+        title = clean_html_content(entry.get('title', ''))
+        link = entry.get('link', '')
+        description = clean_html_content(entry.get('description', ''))
         
-        # If no entries found, try with direct requests and force UTF-8
-        if not feed.entries:
-            response = requests.get(url, headers={
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                'Accept': 'application/xml, text/xml, */*',
-                'Accept-Charset': 'utf-8',
-                'Accept-Encoding': 'gzip, deflate',
-            })
-            response.encoding = 'utf-8'
-            feed = feedparser.parse(response.content)
+        # Handle publication date
+        pub_date = entry.get('published', entry.get('pubDate', ''))
         
-        # If still no entries, try with BeautifulSoup
-        if not feed.entries:
-            response = requests.get(url)
-            response.encoding = 'utf-8'
-            soup = BeautifulSoup(response.content, 'xml')
-            
-            # Convert the soup back to string and parse with feedparser
-            feed = feedparser.parse(str(soup))
+        # Handle content - try different possible fields
+        content = ''
+        if hasattr(entry, 'content'):
+            content = clean_html_content(entry.content[0].value if entry.content else '')
+        elif hasattr(entry, 'summary'):
+            content = clean_html_content(entry.summary)
         
-        results = []
-        for entry in feed.entries:
-            try:
-                # Extract standard fields using the utility function
-                item = extract_standard_fields(entry)
-                
-                # Ensure all string fields are properly encoded
-                for key, value in item.items():
-                    if isinstance(value, str):
-                        # Remove any problematic characters
-                        item[key] = value.encode('utf-8', 'ignore').decode('utf-8')
-                
-                results.append(item)
-            except Exception as e:
-                print(f"Error processing entry: {e}")
-                continue
+        # Combine content with description if both exist
+        if content and description:
+            full_content = f"{content} {description}"
+        elif content:
+            full_content = content
+        elif description:
+            full_content = description
+        else:
+            full_content = ''
         
-        return results
+        # Create result dictionary
+        result = {
+            "title": title,
+            "link": link,
+            "description": description,
+            "pub_date": pub_date,
+            "content": full_content
+        }
         
-    except Exception as e:
-        print(f"Error in MosaiqueFM extractor: {e}")
-        return []
+        results.append(result)
+    
+    return results
+
+
+def clean_html_content(text):
+    """Clean HTML content and extract plain text"""
+    if not text:
+        return ""
+    
+    # Parse HTML content
+    soup = BeautifulSoup(text, 'html.parser')
+    
+    # Remove unwanted tags but preserve text content
+    for element in soup(['script', 'style', 'iframe', 'noscript', 'header', 'footer', 'nav', 'aside']):
+        element.decompose()
+    
+    # Get clean text
+    clean_text = soup.get_text(separator=' ', strip=True)
+    
+    # Decode HTML entities and normalize whitespace
+    clean_text = html.unescape(clean_text)
+    clean_text = ' '.join(clean_text.split())
+    
+    return clean_text

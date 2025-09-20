@@ -113,15 +113,48 @@ class RSSLoader:
         # If unified extractor fails, try with direct feedparser
         try:
             logger.info(f"🔄 FALLBACK: Using direct feedparser for {url}")
-            feed = feedparser.parse(url)
+            
+            # Handle SSL issues for HTTPS URLs
+            import ssl
+            import urllib.request
+            
+            # Create a more lenient SSL context for problematic certificates
+            if url.startswith('https://'):
+                try:
+                    # First try with default SSL verification
+                    feed = feedparser.parse(url)
+                except Exception as ssl_error:
+                    if 'ssl' in str(ssl_error).lower() or 'certificate' in str(ssl_error).lower():
+                        logger.warning(f"SSL error detected, trying with relaxed SSL verification: {ssl_error}")
+                        # Create unverified SSL context as fallback
+                        ssl_context = ssl.create_default_context()
+                        ssl_context.check_hostname = False
+                        ssl_context.verify_mode = ssl.CERT_NONE
+                        
+                        # Try with custom SSL context
+                        opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=ssl_context))
+                        urllib.request.install_opener(opener)
+                        feed = feedparser.parse(url)
+                    else:
+                        raise ssl_error
+            else:
+                feed = feedparser.parse(url)
             
             if feed.bozo:
                 logger.warning(f"Feed parsing error: {feed.bozo_exception}")
+                # Only fail if there are truly no entries AND it's a critical error
                 if not feed.entries:
-                    logger.error("No entries found in feed")
+                    # Check if it's a recoverable error (like SSL or minor XML issues)
+                    error_str = str(feed.bozo_exception).lower()
+                    if any(recoverable in error_str for recoverable in ['ssl', 'certificate', 'mismatched tag', 'xml']):
+                        logger.warning(f"Recoverable error detected, but no entries found: {feed.bozo_exception}")
+                    else:
+                        logger.error("No entries found in feed with critical error")
                     self.extraction_stats['feedparser_fallback_failed'] += 1
                     self.extraction_stats['total_failed'] += 1
                     return None
+                else:
+                    logger.info(f"Feed has parsing warnings but contains {len(feed.entries)} entries, proceeding...")
             
             if feed.entries:
                 logger.info(f"✅ SUCCESS: Feedparser fallback extracted {len(feed.entries)} entries from {url}")
@@ -261,42 +294,44 @@ class RSSLoader:
             new_articles_count = len(new_articles)
             logger.info(f"Found {new_articles_count} new articles to process")
             
-            # Batch process articles for better performance
-            batch_size = min(10, len(new_articles))  # Process in batches of 10
-            
-            for i in range(0, len(new_articles), batch_size):
-                batch = list(reversed(new_articles[i:i+batch_size]))
+            # Only process if there are new articles
+            if new_articles_count > 0:
+                # Batch process articles for better performance
+                batch_size = min(10, len(new_articles))  # Process in batches of 10
                 
-                for entry in batch:
-                    try:
-                        # Quick duplicate check (skip expensive content extraction for duplicates)
-                        if self.settings.content.enable_deduplication:
-                            link = getattr(entry, 'link', '')
-                            if link and self._is_duplicate_link(link):
-                                result['duplicate_articles'] += 1
-                                metrics_collector.record_duplicate_article(source.id)
-                                continue
-                        
-                        # Process the article (use fast mode if enabled)
-                        if self.settings.scraping.fast_mode:
-                            saved_article = self.process_entry_fast(source.id, entry)
-                        else:
-                            saved_article = self.process_entry(source.id, entry)
-                        result['articles_processed'] += 1
-                        
-                        if saved_article:
-                            result['new_articles'] += 1
-                            result['saved_articles'] += 1
-                            metrics_collector.record_article_processed(source.id, saved=True)
-                        else:
-                            result['skipped_articles'] += 1
-                            result['failed_saves'] += 1
-                            metrics_collector.record_article_processed(source.id, saved=False, skipped=True)
+                for i in range(0, len(new_articles), batch_size):
+                    batch = list(reversed(new_articles[i:i+batch_size]))
+                    
+                    for entry in batch:
+                        try:
+                            # Quick duplicate check (skip expensive content extraction for duplicates)
+                            if self.settings.content.enable_deduplication:
+                                link = getattr(entry, 'link', '')
+                                if link and self._is_duplicate_link(link):
+                                    result['duplicate_articles'] += 1
+                                    metrics_collector.record_duplicate_article(source.id)
+                                    continue
                             
-                    except Exception as e:
-                        logger.error(f"Error processing entry: {e}")
-                        result['error_count'] += 1
-                        metrics_collector.record_error(source.id, "processing", str(e))
+                            # Process the article (use fast mode if enabled)
+                            if self.settings.scraping.fast_mode:
+                                saved_article = self.process_entry_fast(source.id, entry)
+                            else:
+                                saved_article = self.process_entry(source.id, entry)
+                            result['articles_processed'] += 1
+                            
+                            if saved_article:
+                                result['new_articles'] += 1
+                                result['saved_articles'] += 1
+                                metrics_collector.record_article_processed(source.id, saved=True)
+                            else:
+                                result['skipped_articles'] += 1
+                                result['failed_saves'] += 1
+                                metrics_collector.record_article_processed(source.id, saved=False, skipped=True)
+                                
+                        except Exception as e:
+                            logger.error(f"Error processing entry: {e}")
+                            result['error_count'] += 1
+                            metrics_collector.record_error(source.id, "processing", str(e))
             
             # Update parsing state if we have new articles
             if new_articles:

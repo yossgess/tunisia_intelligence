@@ -41,6 +41,7 @@ from .businessnews_extractor import extract as extract_businessnews
 from .jawharafm_extractor import extract as extract_jawharafm
 from .jawharafm_politics_extractor import extract as extract_jawharafm_politics
 from .jawharafm_cat_88_1_2_extractor import extract as extract_jawharafm_cat_88_1_2
+from .jawharafm_cat_88_1_4_extractor import extract as extract_jawharafm_cat_88_1_4
 from .mosaiquefm_extractor import extract as extract_mosaiquefm
 
 
@@ -71,7 +72,7 @@ EXTRACTOR_REGISTRY: Dict[str, Callable[..., list]] = {
     "https://www.radiotataouine.tn/articles/rss": extract_radiotataouine,
     "https://www.radiogafsa.tn/articles/rss": extract_radiogafsa,
     "https://www.radiokef.tn/articles/rss": extract_radiokef,
-    "https://www.rtci.tn/feed/": extract_rtci,
+    "https://www.rtci.tn/articles/rss": extract_rtci,
     "https://www.radiomonastir.tn/articles/rss": extract_radiomonastir,
     "https://www.radionationale.tn/articles/rss": extract_radionationale,
     "https://www.radiosfax.tn/articles/rss": extract_radiosfax,
@@ -80,9 +81,9 @@ EXTRACTOR_REGISTRY: Dict[str, Callable[..., list]] = {
     "https://www.nessma.tv/fr/rss/news/7": extract_nessma,
     "https://oasis-fm.net/feed/": extract_oasis,
     # Jawhara FM variants
-    "https://www.jawharafm.net/ar/rss/showRss/88/1/1": extract_jawharafm,
-    "https://www.jawharafm.net/ar/rss/showRss/88/1/4": extract_jawharafm_politics,
+    "https://www.jawharafm.net/ar/rss/showRss/88/1/1": extract_jawharafm_cat_88_1_2,  # Updated to match corrected extractor
     "https://www.jawharafm.net/ar/rss/showRss/88/1/2": extract_jawharafm_cat_88_1_2,
+    "https://www.jawharafm.net/ar/rss/showRss/88/1/4": extract_jawharafm_cat_88_1_4,  # New extractor
 }
 
 

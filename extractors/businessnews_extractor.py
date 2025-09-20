@@ -1,7 +1,7 @@
 """
 Business News RSS extractor
 
-Parses https://www.businessnews.com.tn/rss and returns a normalized list of entries with fields:
+Parses http://www.businessnews.com.tn/rss.xml and returns a normalized list of entries with fields:
 - title
 - link
 - description (HTML stripped)
@@ -12,62 +12,10 @@ from __future__ import annotations
 
 from typing import List, Dict
 import feedparser
-import requests
-import ssl
-from urllib3.exceptions import InsecureRequestWarning
-from typing import List, Dict, Optional
-from datetime import datetime
 from bs4 import BeautifulSoup
-import logging
+import re
 
-from .utils import extract_standard_fields
-
-# Suppress only the single InsecureRequestWarning from urllib3
-requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
-
-# Configure logging
-logger = logging.getLogger(__name__)
-
-BUSINESSNEWS_FEED_URL = "https://www.businessnews.com.tn/rss"
-
-def fetch_feed_content(url: str) -> Optional[bytes]:
-    """Fetch feed content with SSL verification disabled.
-    
-    Args:
-        url: The URL to fetch
-        
-    Returns:
-        The response content or None if the request failed
-    """
-    try:
-        # First try with SSL verification
-        response = requests.get(
-            url,
-            headers={
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Accept': 'application/xml, text/xml, */*',
-            },
-            verify=True,  # First try with SSL verification
-            timeout=30
-        )
-        return response.content
-    except (requests.exceptions.SSLError, requests.exceptions.RequestException) as e:
-        logger.warning(f"SSL error with {url}, trying without verification: {e}")
-        try:
-            # If SSL verification fails, try without it
-            response = requests.get(
-                url,
-                headers={
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                    'Accept': 'application/xml, text/xml, */*',
-                },
-                verify=False,  # Disable SSL verification
-                timeout=30
-            )
-            return response.content
-        except Exception as e:
-            logger.error(f"Failed to fetch {url}: {e}")
-            return None
+BUSINESSNEWS_FEED_URL = "http://www.businessnews.com.tn/rss.xml"
 
 def extract(url: str = BUSINESSNEWS_FEED_URL) -> List[Dict[str, str]]:
     """Extract and clean entries from the Business News RSS feed.
@@ -77,43 +25,130 @@ def extract(url: str = BUSINESSNEWS_FEED_URL) -> List[Dict[str, str]]:
     Returns:
         A list of dictionaries with keys: title, link, description, pub_date, content
     """
-    results: List[Dict[str, str]] = []
-    
     try:
-        # First try with feedparser
-        feed = feedparser.parse(url)
+        # Handle HTTPS/HTTP URL issues using requests for better control
+        import requests
+        import ssl
+        from urllib3.exceptions import InsecureRequestWarning
+        import urllib3
         
-        # If no entries, try with direct requests
-        if not feed.entries:
-            content = fetch_feed_content(url)
-            if content:
-                feed = feedparser.parse(content)
+        # Disable SSL warnings
+        urllib3.disable_warnings(InsecureRequestWarning)
         
-        # If still no entries, try with BeautifulSoup
-        if not feed.entries and 'content' in locals():
+        original_url = url
+        feed = None
+        
+        # Try different approaches in order
+        methods = []
+        
+        if url.startswith('https://'):
+            # Method 1: Try HTTP variant
+            http_url = url.replace('https://', 'http://', 1)
+            methods.append(('HTTP', http_url, {'verify': False}))
+            
+            # Method 2: Try HTTPS with SSL verification disabled
+            methods.append(('HTTPS (no SSL verify)', url, {'verify': False}))
+            
+            # Method 3: Try original HTTPS
+            methods.append(('HTTPS (default)', url, {}))
+        else:
+            # For HTTP URLs, just try normally
+            methods.append(('HTTP', url, {}))
+        
+        for method_name, test_url, kwargs in methods:
             try:
-                soup = BeautifulSoup(content, 'xml')
-                feed = feedparser.parse(str(soup))
+                print(f"Business News: Trying {method_name}: {test_url}")
+                
+                # Use requests to fetch the content first
+                response = requests.get(test_url, timeout=30, **kwargs)
+                response.raise_for_status()
+                
+                # Parse the content with feedparser
+                feed = feedparser.parse(response.content)
+                url = test_url  # Use the working URL
+                
+                print(f"Business News: {method_name} successful - got {len(feed.entries) if hasattr(feed, 'entries') else 0} entries")
+                break
+                
             except Exception as e:
-                logger.error(f"Error parsing with BeautifulSoup: {e}")
+                print(f"Business News: {method_name} failed: {e}")
+                continue
         
-        # Process entries
-        for entry in feed.entries:
-            try:
-                # Extract standard fields using the utility function
-                item = extract_standard_fields(entry)
-                
-                # Ensure all string fields are properly encoded
-                for key, value in item.items():
-                    if isinstance(value, str):
-                        item[key] = value.encode('utf-8', 'ignore').decode('utf-8')
-                
-                results.append(item)
-            except Exception as e:
-                logger.error(f"Error processing entry: {e}")
+        if feed is None:
+            print("Business News: All connection methods failed")
+            return []
+        
+        # Handle parsing errors gracefully
+        if feed.bozo:
+            print(f"Business News feed parsing warning: {feed.bozo_exception}")
+            # Continue processing if we have entries despite warnings
+            if not feed.entries:
+                print("Business News: No entries found due to parsing errors, returning empty list")
+                return []
+        
+        if not hasattr(feed, 'entries') or not feed.entries:
+            print("Business News: No entries found in feed")
+            return []
+        
+        print(f"Business News: Successfully parsed {len(feed.entries)} entries from {url}")
+        
+    except Exception as e:
+        print(f"Business News: Error parsing feed: {e}")
+        return []
+    
+    results = []
+    
+    for entry in feed.entries:
+        try:
+            # Extract and clean each field
+            title = clean_html_content(entry.get('title', ''))
+            link = entry.get('link', '')
+            
+            # Skip entries without links
+            if not link:
                 continue
                 
-    except Exception as e:
-        logger.error(f"Error in Business News extractor: {e}")
+            description = clean_html_content(entry.get('description', ''))
+            pub_date = entry.get('published', entry.get('pubDate', ''))
+            
+            # Handle content - try different possible content fields
+            content = ''
+            if hasattr(entry, 'content'):
+                content = clean_html_content(entry.content[0].value if entry.content else '')
+            elif hasattr(entry, 'summary'):
+                content = clean_html_content(entry.summary)
+            elif hasattr(entry, 'description'):
+                content = clean_html_content(entry.description)
+            
+            # Create result dictionary
+            result = {
+                "title": title,
+                "link": link,
+                "description": description,
+                "pub_date": pub_date,
+                "content": content
+            }
+            
+            results.append(result)
+            
+        except Exception as e:
+            print(f"Business News: Error processing entry: {e}")
+            continue
     
+    print(f"Business News: Successfully extracted {len(results)} entries")
     return results
+
+
+def clean_html_content(text):
+    """Remove HTML tags and clean text using BeautifulSoup"""
+    if not text:
+        return ""
+    
+    # Parse with BeautifulSoup to remove HTML tags
+    soup = BeautifulSoup(text, 'html.parser')
+    clean_text = soup.get_text(separator=' ', strip=True)
+    
+    # Remove extra whitespace and normalize
+    clean_text = re.sub(r'\s+', ' ', clean_text).strip()
+    
+    return clean_text

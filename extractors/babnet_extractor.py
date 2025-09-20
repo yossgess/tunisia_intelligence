@@ -1,7 +1,7 @@
 """
 Babnet RSS extractor
 
-Parses https://www.babnet.net/rss.php and returns a normalized list of entries with fields:
+Parses https://www.babnet.net/feed.php and returns a normalized list of entries with fields:
 - title
 - link
 - description (HTML stripped)
@@ -12,9 +12,10 @@ from __future__ import annotations
 
 from typing import List, Dict
 import feedparser
-from .utils import extract_standard_fields
+from bs4 import BeautifulSoup
+import html
 
-BABNET_FEED_URL = "https://www.babnet.net/rss.php"
+BABNET_FEED_URL = "https://www.babnet.net/feed.php"
 
 def extract(url: str = BABNET_FEED_URL) -> List[Dict[str, str]]:
     """Extract and clean entries from the Babnet RSS feed.
@@ -24,12 +25,55 @@ def extract(url: str = BABNET_FEED_URL) -> List[Dict[str, str]]:
     Returns:
         A list of dictionaries with keys: title, link, description, pub_date, content
     """
+    # Parse the RSS feed
     feed = feedparser.parse(url)
-
-    results: List[Dict[str, str]] = []
+    
+    results = []
+    
     for entry in feed.entries:
-        # Extract standard fields using the utility function
-        item = extract_standard_fields(entry)
-        results.append(item)
-
+        # Extract fields with fallbacks for missing data
+        title = clean_html_content(entry.get('title', ''))
+        link = entry.get('link', '')
+        description = clean_html_content(entry.get('description', ''))
+        
+        # Handle pubDate with different possible field names
+        pub_date = entry.get('published', entry.get('pubDate', entry.get('updated', '')))
+        pub_date = clean_html_content(pub_date)
+        
+        # Handle content - try different possible content fields
+        content = ''
+        if hasattr(entry, 'content'):
+            content = clean_html_content(entry.content[0].value if entry.content else '')
+        elif hasattr(entry, 'summary'):
+            content = clean_html_content(entry.summary)
+        elif hasattr(entry, 'description'):
+            content = clean_html_content(entry.description)
+        
+        # Create result dictionary
+        result = {
+            "title": title,
+            "link": link,
+            "description": description,
+            "pub_date": pub_date,
+            "content": content
+        }
+        
+        results.append(result)
+    
     return results
+
+
+def clean_html_content(text):
+    """Remove HTML tags and clean the text content"""
+    if not text:
+        return ""
+    
+    # Parse with BeautifulSoup to remove HTML tags
+    soup = BeautifulSoup(text, 'html.parser')
+    clean_text = soup.get_text(separator=' ', strip=True)
+    
+    # Decode HTML entities and clean extra whitespace
+    clean_text = html.unescape(clean_text)
+    clean_text = ' '.join(clean_text.split())
+    
+    return clean_text

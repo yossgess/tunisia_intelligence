@@ -1,12 +1,12 @@
 """
-Jawhara FM (category 88/1/2) RSS extractor
+Jawhara FM (category 88/1/4) RSS extractor
 
-Parses https://www.jawharafm.net/ar/rss/showRss/88/1/2 and returns a normalized list of entries with fields:
+Parses https://www.jawharafm.net/ar/rss/showRss/88/1/4 and returns a normalized list of entries with fields:
 - title
 - link
 - description (HTML stripped)
 - pub_date (published/pubDate when available)
-- content (prefers entry.content HTML if present; falls back to summary/description)
+- content (prefers entry.content HTML if present; falls back to description)
 """
 from __future__ import annotations
 
@@ -15,13 +15,13 @@ import feedparser
 from bs4 import BeautifulSoup
 import html
 
-JAWHARAFM_CAT_88_1_2_FEED_URL = "https://www.jawharafm.net/ar/rss/showRss/88/1/2"
+JAWHARAFM_CAT_88_1_4_FEED_URL = "https://www.jawharafm.net/ar/rss/showRss/88/1/4"
 
-def extract(url: str = JAWHARAFM_CAT_88_1_2_FEED_URL) -> List[Dict[str, str]]:
-    """Extract and clean entries from the Jawhara FM category RSS feed.
+def extract(url: str = JAWHARAFM_CAT_88_1_4_FEED_URL) -> List[Dict[str, str]]:
+    """Extract and clean entries from the Jawhara FM category 88/1/4 RSS feed.
     
     Args:
-        url: URL of the RSS feed. Defaults to Jawhara FM category 88/1/2 feed.
+        url: URL of the RSS feed. Defaults to Jawhara FM category 88/1/4 feed.
         
     Returns:
         List of dictionaries containing article data with standardized fields.
@@ -104,5 +104,3 @@ def clean_text(text):
     
     cleaned = html.unescape(text).strip()
     return cleaned
-
- 
