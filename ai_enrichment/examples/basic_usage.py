@@ -143,7 +143,7 @@ def integration_with_database_example():
     
     # Get recent articles that need enrichment
     try:
-        response = db_manager.client.table("news_articles") \
+        response = db_manager.client.table("articles") \
             .select("id, title, content") \
             .is_("sentiment", "null") \
             .limit(5) \

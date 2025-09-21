@@ -295,7 +295,7 @@ class BatchProcessor:
     ) -> List[Dict[str, Any]]:
         """Get articles from database that need processing."""
         try:
-            query = self.db_manager.client.table("news_articles").select("*")
+            query = self.db_manager.client.table("articles").select("*")
             
             # Apply filters
             if source_ids:
@@ -506,7 +506,7 @@ class BatchProcessor:
         """
         try:
             if content_type == "article":
-                table_name = "news_articles"
+                table_name = "articles"
                 date_field = "pub_date"
                 enriched_field = "sentiment"
             elif content_type == "social_media_post":

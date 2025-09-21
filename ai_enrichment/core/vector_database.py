@@ -62,9 +62,9 @@ class VectorDatabase:
             vector_indexes = [
                 # News articles
                 {
-                    'table': 'news_articles',
+                    'table': 'articles',
                     'column': 'embedding',
-                    'index_name': 'idx_news_articles_embedding_hnsw'
+                    'index_name': 'idx_articles_embedding_hnsw'
                 },
                 # Social media posts
                 {
@@ -292,7 +292,7 @@ class VectorDatabase:
         """Search for similar vectors in a specific table."""
         # Map content type to table
         table_mapping = {
-            'article': 'news_articles',
+            'article': 'articles',
             'social_post': 'social_media_posts',
             'comment': 'social_media_comments',
             'entity': 'entities',
@@ -379,7 +379,7 @@ class VectorDatabase:
     def _get_content_vector(self, content_id: str, content_type: str) -> Optional[List[float]]:
         """Get the vector for a specific content item."""
         table_mapping = {
-            'article': 'news_articles',
+            'article': 'articles',
             'social_post': 'social_media_posts',
             'comment': 'social_media_comments',
             'entity': 'entities',
@@ -447,7 +447,7 @@ class VectorDatabase:
             int: Number of vectors deleted
         """
         table_mapping = {
-            'article': 'news_articles',
+            'article': 'articles',
             'social_post': 'social_media_posts',
             'comment': 'social_media_comments',
             'entity': 'entities',

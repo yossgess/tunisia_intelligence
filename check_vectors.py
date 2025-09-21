@@ -72,13 +72,13 @@ def check_vector_storage():
         print("\n🗂️  VECTORS IN OTHER TABLES:")
         print("-" * 40)
         
-        # Check news_articles table
+        # Check articles table
         articles_result = db.execute_query("""
             SELECT 
                 COUNT(*) as total_articles,
                 COUNT(embedding) as articles_with_vectors,
                 AVG(vector_dims(embedding)) as avg_dimensions
-            FROM news_articles 
+            FROM articles 
             WHERE embedding IS NOT NULL;
         """)
         

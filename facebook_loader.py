@@ -10,9 +10,10 @@ Perfect for Tunisia Intelligence continuous monitoring.
 """
 
 import logging
+import logging
 import sys
-import os
 import json
+import time
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from dateutil import parser as date_parser
@@ -22,6 +23,7 @@ import hashlib
 # Import database configuration
 from config.database import DatabaseManager
 from config.secrets import SecretManager
+from config.facebook_config import get_facebook_config
 from extractors.facebook_extractor import UltraMinimalFacebookExtractor
 
 logger = logging.getLogger(__name__)
@@ -38,19 +40,110 @@ class UltraMinimalFacebookLoader:
         # Use file-based secret storage
         secret_manager = SecretManager(backend="file")
         
-        # Get Facebook app token
+        # Get Facebook app token - auto-setup if missing
         self.app_token = secret_manager.get_secret("FACEBOOK_APP_TOKEN")
         if not self.app_token:
-            raise ValueError("FACEBOOK_APP_TOKEN must be set")
+            logger.info("Facebook token not found, setting up automatically...")
+            self._setup_facebook_token_automatically(secret_manager)
+            self.app_token = secret_manager.get_secret("FACEBOOK_APP_TOKEN")
+            if not self.app_token:
+                raise ValueError("Failed to setup FACEBOOK_APP_TOKEN automatically")
         
-        # Initialize ultra-minimal extractor
-        api_version = secret_manager.get_secret("FACEBOOK_API_VERSION", "v18.0")
-        self.facebook_extractor = UltraMinimalFacebookExtractor(self.app_token, api_version)
+        # Get Facebook configuration
+        self.config = get_facebook_config()
         
-        # Configuration for ultra-minimal processing
-        self.max_pages_per_run = 53  # Process all Facebook sources
+        # Initialize ultra-minimal extractor with configuration
+        api_version = secret_manager.get_secret("FACEBOOK_API_VERSION", self.config.extraction.api_version)
+        self.facebook_extractor = UltraMinimalFacebookExtractor(self.app_token, api_version, self.config)
+        
+        # Configuration for ultra-minimal processing (use config values)
+        self.max_pages_per_run = self.config.extraction.max_pages_per_run
         self.priority_file = Path("facebook_page_priorities.json")
         self.page_priorities = self._load_page_priorities()
+    
+    def _setup_facebook_token_automatically(self, secret_manager):
+        """Automatically setup Facebook token if missing"""
+        try:
+            # Facebook app token (same as in setup_facebook_token.py)
+            app_token = "5857679854344905|ll5MIrsnV0lBA4SxwsI83Ujc4YQ"
+            
+            # Store the token securely
+            success = secret_manager.set_secret("FACEBOOK_APP_TOKEN", app_token)
+            if success:
+                logger.info("✅ Facebook app token stored successfully")
+                
+                # Also set API version
+                secret_manager.set_secret("FACEBOOK_API_VERSION", "v18.0")
+                logger.info("✅ Facebook API version set to v18.0")
+                
+                # Set environment variable to use file backend
+                import os
+                os.environ["SECRETS_BACKEND"] = "file"
+                logger.info("✅ Secret backend configured for file storage")
+            else:
+                logger.error("❌ Failed to store Facebook app token")
+                
+        except Exception as e:
+            logger.error(f"Error setting up Facebook token automatically: {e}")
+    
+    def reload_configuration(self):
+        """Reload Facebook configuration from the config system"""
+        try:
+            logger.info("🔄 Reloading Facebook configuration...")
+            
+            # Store old values for comparison
+            old_max_pages = getattr(self, 'max_pages_per_run', None)
+            old_config = getattr(self, 'config', None)
+            
+            # Reload configuration
+            self.config = get_facebook_config()
+            self.max_pages_per_run = self.config.extraction.max_pages_per_run
+            
+            # Update extractor configuration if needed
+            if hasattr(self.facebook_extractor, 'update_config'):
+                self.facebook_extractor.update_config(self.config)
+            
+            # Log changes
+            changes = []
+            if old_max_pages != self.max_pages_per_run:
+                changes.append(f"max_pages_per_run: {old_max_pages} → {self.max_pages_per_run}")
+            
+            if old_config and hasattr(old_config, 'extraction'):
+                if old_config.extraction.min_api_delay != self.config.extraction.min_api_delay:
+                    changes.append(f"min_api_delay: {old_config.extraction.min_api_delay} → {self.config.extraction.min_api_delay}")
+                if old_config.extraction.max_api_calls_per_run != self.config.extraction.max_api_calls_per_run:
+                    changes.append(f"max_api_calls: {old_config.extraction.max_api_calls_per_run} → {self.config.extraction.max_api_calls_per_run}")
+            
+            if changes:
+                logger.info(f"✅ Configuration reloaded with changes: {', '.join(changes)}")
+            else:
+                logger.info("✅ Configuration reloaded (no changes detected)")
+            
+            return True
+        except Exception as e:
+            logger.error(f"❌ Error reloading configuration: {e}")
+            return False
+    
+    def _check_reload_signal(self):
+        """Check if configuration reload has been requested"""
+        try:
+            reload_signal_file = Path("facebook_config_reload.signal")
+            if reload_signal_file.exists():
+                # Get file modification time
+                signal_time = reload_signal_file.stat().st_mtime
+                current_time = time.time()
+                
+                # If signal is recent (within last 60 seconds), reload config
+                if current_time - signal_time < 60:
+                    logger.info("Configuration reload signal detected")
+                    self.reload_configuration()
+                    
+                    # Remove the signal file
+                    reload_signal_file.unlink()
+                    return True
+        except Exception as e:
+            logger.debug(f"Error checking reload signal: {e}")
+        return False
     
     def _load_page_priorities(self) -> Dict[str, int]:
         """Load page priorities based on historical activity"""
@@ -154,6 +247,9 @@ class UltraMinimalFacebookLoader:
             
             for page_id, page_result in results.items():
                 try:
+                    # Check for configuration reload signal
+                    self._check_reload_signal()
+                    
                     if "error" in page_result:
                         errors.append(f"Page {page_id}: {page_result['error']}")
                         continue

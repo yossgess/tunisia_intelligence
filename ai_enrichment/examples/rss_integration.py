@@ -268,7 +268,7 @@ class RSSLoader:
     def process_article(self, article_data):
         # ... existing article processing ...
         
-        # Insert article as usual (uses news_articles table)
+        # Insert article as usual (uses articles table)
         article = self.db_manager.insert_article(article)
         
         # Add AI enrichment

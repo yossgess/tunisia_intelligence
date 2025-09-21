@@ -247,7 +247,7 @@ class EnrichedArticle(BaseModel):
     content: Optional[str] = None
     source_id: Optional[int] = None
     
-    # AI enrichment fields (matching news_articles table schema)
+    # AI enrichment fields (matching articles table schema)
     sentiment: Optional[str] = None  # Populated from sentiment analysis
     sentiment_score: Optional[float] = None  # New field in optimized schema
     keywords: Optional[str] = None  # JSON string of keywords

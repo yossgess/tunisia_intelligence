@@ -475,7 +475,7 @@ class EnrichmentService:
         if update_data:
             try:
                 # Use Supabase client to update article
-                response = self.db_manager.client.table("news_articles") \
+                response = self.db_manager.client.table("articles") \
                     .update(update_data) \
                     .eq("id", result.content_id) \
                     .execute()

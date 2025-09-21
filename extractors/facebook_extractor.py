@@ -25,11 +25,14 @@ logger = logging.getLogger(__name__)
 class UltraMinimalFacebookExtractor:
     """Ultra-minimal Facebook extractor with maximum efficiency"""
     
-    def __init__(self, app_token: str, api_version: str = "v18.0"):
+    def __init__(self, app_token: str, api_version: str = "v18.0", config=None):
         self.app_token = app_token
         self.api_version = api_version
         self.base_url = f"https://graph.facebook.com/{api_version}"
         self.session = requests.Session()
+        
+        # Store configuration reference
+        self.config = config
         
         # Cache for page information
         self.cache_file = Path("facebook_page_cache.pkl")
@@ -38,7 +41,18 @@ class UltraMinimalFacebookExtractor:
         # Rate limiting tracking
         self.api_calls_made = 0
         self.last_call_time = 0
-        self.min_delay = 0.3  # Faster for fewer calls
+        
+        # Use config values if available, otherwise defaults
+        if self.config:
+            self.min_delay = self.config.extraction.min_api_delay
+            self.max_api_calls = self.config.extraction.max_api_calls_per_run
+            self.api_timeout = self.config.extraction.api_timeout
+            self.posts_limit = self.config.extraction.posts_limit_per_page
+        else:
+            self.min_delay = 0.3  # Default fallback
+            self.max_api_calls = 100
+            self.api_timeout = 30
+            self.posts_limit = 25
         
         # Failed pages to skip
         self.failed_pages: Set[str] = set()
@@ -46,6 +60,18 @@ class UltraMinimalFacebookExtractor:
         self.session.headers.update({
             'User-Agent': 'Tunisia Intelligence Facebook Scraper Ultra-Minimal 1.0'
         })
+    
+    def update_config(self, config):
+        """Update configuration parameters dynamically"""
+        try:
+            self.config = config
+            self.min_delay = config.extraction.min_api_delay
+            self.max_api_calls = config.extraction.max_api_calls_per_run
+            self.api_timeout = config.extraction.api_timeout
+            self.posts_limit = config.extraction.posts_limit_per_page
+            logger.info(f"✅ Extractor config updated - min_delay: {self.min_delay}, max_calls: {self.max_api_calls}")
+        except Exception as e:
+            logger.error(f"Error updating extractor config: {e}")
     
     def _load_cache(self) -> Dict[str, Any]:
         """Load cached page information"""

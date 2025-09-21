@@ -475,7 +475,7 @@ class VectorBatchProcessor:
         try:
             # Get recent content items
             if content_type == 'article':
-                query = self.db_manager.client.table("news_articles").select(
+                query = self.db_manager.client.table("articles").select(
                     "id, title, description, content, created_at"
                 ).gte("created_at", cutoff_time.isoformat())
             elif content_type == 'social_post':

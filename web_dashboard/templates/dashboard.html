@@ -1,0 +1,1242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tunisia Intelligence - Control Dashboard</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <!-- Plotly.js -->
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <!-- Socket.IO -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+    
+    <style>
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+        .status-healthy { background-color: #28a745; }
+        .status-warning { background-color: #ffc107; }
+        .status-critical { background-color: #dc3545; }
+        .status-unknown { background-color: #6c757d; }
+        
+        .pipeline-card {
+            transition: all 0.3s ease;
+            border-left: 4px solid transparent;
+        }
+        .pipeline-card.enabled { border-left-color: #28a745; }
+        .pipeline-card.disabled { border-left-color: #dc3545; }
+        .pipeline-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+        
+        .metric-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .metric-value {
+            font-size: 2.5rem;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .metric-label {
+            font-size: 0.9rem;
+            opacity: 0.8;
+        }
+        
+        .log-container {
+            background-color: #1e1e1e;
+            color: #ffffff;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+            height: 400px;
+            overflow-y: auto;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        
+        .alert-item {
+            border-left: 4px solid;
+            padding: 10px 15px;
+            margin-bottom: 10px;
+            border-radius: 0 5px 5px 0;
+        }
+        .alert-critical { border-left-color: #dc3545; background-color: #f8d7da; }
+        .alert-error { border-left-color: #fd7e14; background-color: #fff3cd; }
+        .alert-warning { border-left-color: #ffc107; background-color: #fff3cd; }
+        .alert-info { border-left-color: #17a2b8; background-color: #d1ecf1; }
+        
+        .navbar-brand {
+            font-weight: bold;
+            font-size: 1.4rem;
+        }
+        
+        .card-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            font-weight: bold;
+        }
+        
+        .btn-pipeline {
+            margin: 2px;
+            min-width: 100px;
+        }
+        
+        .connection-status {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            z-index: 9999;
+            padding: 8px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: bold;
+        }
+        .connected { background-color: #28a745; color: white; }
+        .disconnected { background-color: #dc3545; color: white; }
+        
+        .loading-spinner {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+        
+        @media (max-width: 768px) {
+            .metric-value { font-size: 2rem; }
+            .pipeline-card { margin-bottom: 15px; }
+        }
+    </style>
+</head>
+<body>
+    <!-- Connection Status -->
+    <div id="connectionStatus" class="connection-status disconnected">
+        <i class="fas fa-circle"></i> Connecting...
+    </div>
+
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#">
+                <i class="fas fa-chart-line"></i> Tunisia Intelligence Dashboard
+            </a>
+            <div class="navbar-nav ms-auto">
+                <span class="navbar-text" id="lastUpdate">
+                    Last Update: <span id="updateTime">--:--:--</span>
+                </span>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4">
+        <!-- System Status Row -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-tachometer-alt"></i> System Status</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-3">
+                                <div class="metric-card text-center">
+                                    <div class="metric-value" id="systemHealth">--</div>
+                                    <div class="metric-label">System Health</div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="metric-card text-center">
+                                    <div class="metric-value" id="activePipelines">--</div>
+                                    <div class="metric-label">Active Pipelines</div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="metric-card text-center">
+                                    <div class="metric-value" id="activeAlerts">--</div>
+                                    <div class="metric-label">Active Alerts</div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="metric-card text-center">
+                                    <div class="metric-value" id="currentCycle">--</div>
+                                    <div class="metric-label">Current Cycle</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Controller Controls -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-play-circle"></i> Controller Management</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="btn-group" role="group">
+                            <button type="button" class="btn btn-success" onclick="controlController('start')">
+                                <i class="fas fa-play"></i> Start
+                            </button>
+                            <button type="button" class="btn btn-danger" onclick="controlController('stop')">
+                                <i class="fas fa-stop"></i> Stop
+                            </button>
+                            <button type="button" class="btn btn-warning" onclick="controlController('pause')">
+                                <i class="fas fa-pause"></i> Pause
+                            </button>
+                            <button type="button" class="btn btn-info" onclick="controlController('resume')">
+                                <i class="fas fa-play"></i> Resume
+                            </button>
+                        </div>
+                        <div class="mt-3">
+                            <span class="badge bg-secondary me-2">Status:</span>
+                            <span id="controllerStatus" class="badge bg-secondary">Unknown</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Pipeline Tabs -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-cogs"></i> Pipeline Management</h5>
+                    </div>
+                    <div class="card-body">
+                        <!-- Pipeline Tabs Navigation -->
+                        <ul class="nav nav-tabs" id="pipelineTabs" role="tablist">
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link active" id="overview-tab" data-bs-toggle="tab" data-bs-target="#overview" type="button" role="tab">
+                                    <i class="fas fa-tachometer-alt"></i> Overview
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="rss-tab" data-bs-toggle="tab" data-bs-target="#rss" type="button" role="tab">
+                                    <i class="fas fa-rss"></i> RSS Pipeline
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="facebook-tab" data-bs-toggle="tab" data-bs-target="#facebook" type="button" role="tab">
+                                    <i class="fab fa-facebook"></i> Facebook Pipeline
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="ai-tab" data-bs-toggle="tab" data-bs-target="#ai" type="button" role="tab">
+                                    <i class="fas fa-brain"></i> AI Enrichment
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="vector-tab" data-bs-toggle="tab" data-bs-target="#vector" type="button" role="tab">
+                                    <i class="fas fa-project-diagram"></i> Vectorization
+                                </button>
+                            </li>
+                        </ul>
+
+                        <!-- Pipeline Tabs Content -->
+                        <div class="tab-content" id="pipelineTabContent">
+                            <!-- Overview Tab -->
+                            <div class="tab-pane fade show active" id="overview" role="tabpanel">
+                                <div class="row mt-3" id="pipelineCards">
+                                    <!-- Pipeline cards will be populated by JavaScript -->
+                                </div>
+                            </div>
+
+                            <!-- RSS Pipeline Tab -->
+                            <div class="tab-pane fade" id="rss" role="tabpanel">
+                                <div class="mt-3">
+                                    <h6><i class="fas fa-rss"></i> RSS Scraping Pipeline</h6>
+                                    <p class="text-muted">Scrapes news articles from 35+ Tunisian news sources</p>
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <button class="btn btn-primary" onclick="executePipeline('rss')">
+                                                <i class="fas fa-play"></i> Run RSS Pipeline
+                                            </button>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <div class="card">
+                                                <div class="card-body">
+                                                    <h6>Pipeline Status</h6>
+                                                    <div id="rssStatus">Loading...</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Facebook Pipeline Tab -->
+                            <div class="tab-pane fade" id="facebook" role="tabpanel">
+                                <div class="mt-3">
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <h6><i class="fab fa-facebook"></i> Facebook Scraping Pipeline</h6>
+                                            <p class="text-muted">Scrapes posts from 54 Tunisian government Facebook pages</p>
+                                            <button class="btn btn-primary me-2" onclick="executePipeline('facebook')">
+                                                <i class="fas fa-play"></i> Run Facebook Pipeline
+                                            </button>
+                                            <button class="btn btn-secondary" onclick="showFacebookConfig()">
+                                                <i class="fas fa-cog"></i> Configure
+                                            </button>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <div class="card">
+                                                <div class="card-body">
+                                                    <h6>Pipeline Status</h6>
+                                                    <div id="facebookStatus">Loading...</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Facebook Configuration Panel -->
+                                    <div id="facebookConfigPanel" class="mt-4" style="display: none;">
+                                        <div class="card">
+                                            <div class="card-header">
+                                                <h6><i class="fas fa-cog"></i> Facebook Pipeline Configuration</h6>
+                                            </div>
+                                            <div class="card-body">
+                                                <div id="facebookConfigContent">
+                                                    Loading configuration...
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- AI Enrichment Tab -->
+                            <div class="tab-pane fade" id="ai" role="tabpanel">
+                                <div class="mt-3">
+                                    <h6><i class="fas fa-brain"></i> AI Enrichment Pipeline</h6>
+                                    <p class="text-muted">Enriches content with sentiment analysis, entity extraction, and categorization</p>
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <button class="btn btn-primary" onclick="executePipeline('ai_enrichment')">
+                                                <i class="fas fa-play"></i> Run AI Enrichment
+                                            </button>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <div class="card">
+                                                <div class="card-body">
+                                                    <h6>Pipeline Status</h6>
+                                                    <div id="aiStatus">Loading...</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Vectorization Tab -->
+                            <div class="tab-pane fade" id="vector" role="tabpanel">
+                                <div class="mt-3">
+                                    <h6><i class="fas fa-project-diagram"></i> Vectorization Pipeline</h6>
+                                    <p class="text-muted">Creates vector embeddings for semantic similarity search</p>
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <button class="btn btn-primary" onclick="executePipeline('vectorization')">
+                                                <i class="fas fa-play"></i> Run Vectorization
+                                            </button>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <div class="card">
+                                                <div class="card-body">
+                                                    <h6>Pipeline Status</h6>
+                                                    <div id="vectorStatus">Loading...</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts Row -->
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-chart-pie"></i> System Resources</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="systemResourcesChart" style="height: 400px;"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-chart-bar"></i> Pipeline Performance</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="pipelinePerformanceChart" style="height: 400px;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Alerts and Logs Row -->
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-exclamation-triangle"></i> Active Alerts</h5>
+                    </div>
+                    <div class="card-body" style="max-height: 400px; overflow-y: auto;">
+                        <div id="alertsContainer">
+                            <div class="text-muted text-center">No active alerts</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0"><i class="fas fa-file-alt"></i> System Logs</h5>
+                        <button class="btn btn-sm btn-outline-light" onclick="refreshLogs()">
+                            <i class="fas fa-sync-alt"></i> Refresh
+                        </button>
+                    </div>
+                    <div class="card-body p-0">
+                        <div id="logsContainer" class="log-container">
+                            Loading logs...
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Configuration Modal -->
+        <div class="modal fade" id="configModal" tabindex="-1">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title"><i class="fas fa-cog"></i> Configuration</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div id="configContent">
+                            Loading configuration...
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                        <button type="button" class="btn btn-primary" onclick="saveConfiguration()">Save Changes</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Spinner -->
+    <div class="loading-spinner" id="loadingSpinner">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <div class="mt-2">Processing...</div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        // Global variables
+        let socket = null;
+        let lastData = null;
+        let isConnected = false;
+
+        // Initialize Socket.IO connection
+        function initializeSocket() {
+            socket = io();
+            
+            socket.on('connect', function() {
+                console.log('Connected to dashboard');
+                isConnected = true;
+                updateConnectionStatus();
+                socket.emit('request_update');
+            });
+            
+            socket.on('disconnect', function() {
+                console.log('Disconnected from dashboard');
+                isConnected = false;
+                updateConnectionStatus();
+            });
+            
+            socket.on('status', function(data) {
+                console.log('Received status update:', data);
+                lastData = data;
+                updateDashboard(data);
+            });
+        }
+
+        // Update connection status indicator
+        function updateConnectionStatus() {
+            const statusEl = document.getElementById('connectionStatus');
+            if (isConnected) {
+                statusEl.className = 'connection-status connected';
+                statusEl.innerHTML = '<i class="fas fa-circle"></i> Connected';
+            } else {
+                statusEl.className = 'connection-status disconnected';
+                statusEl.innerHTML = '<i class="fas fa-circle"></i> Disconnected';
+            }
+        }
+
+        // Update dashboard with new data
+        function updateDashboard(data) {
+            updateSystemMetrics(data);
+            updatePipelineCards(data);
+            updateControllerStatus(data);
+            updateAlerts(data);
+            updateCharts(data);
+            
+            // Update timestamp
+            document.getElementById('updateTime').textContent = new Date().toLocaleTimeString();
+        }
+
+        // Update system metrics
+        function updateSystemMetrics(data) {
+            // System health
+            const health = data.system_health || {};
+            const healthEl = document.getElementById('systemHealth');
+            const healthStatus = health.status || 'unknown';
+            
+            healthEl.innerHTML = `<span class="status-indicator status-${healthStatus}"></span>${healthStatus.toUpperCase()}`;
+            
+            // Active pipelines count
+            const pipelines = data.pipelines || {};
+            const activePipelines = Object.values(pipelines).filter(p => p.enabled).length;
+            document.getElementById('activePipelines').textContent = activePipelines;
+            
+            // Active alerts count
+            const alerts = data.active_alerts || [];
+            document.getElementById('activeAlerts').textContent = alerts.length;
+            
+            // Current cycle
+            const controller = data.controller || {};
+            document.getElementById('currentCycle').textContent = controller.current_cycle || '--';
+        }
+
+        // Update pipeline cards
+        function updatePipelineCards(data) {
+            const pipelines = data.pipelines || {};
+            const container = document.getElementById('pipelineCards');
+            
+            container.innerHTML = '';
+            
+            Object.entries(pipelines).forEach(([name, pipeline]) => {
+                const card = document.createElement('div');
+                card.className = 'col-md-6 col-lg-3 mb-3';
+                
+                const enabledClass = pipeline.enabled ? 'enabled' : 'disabled';
+                const statusIcon = pipeline.enabled ? 'fa-check-circle text-success' : 'fa-times-circle text-danger';
+                
+                card.innerHTML = `
+                    <div class="card pipeline-card ${enabledClass}">
+                        <div class="card-body text-center">
+                            <h6 class="card-title">
+                                <i class="fas ${statusIcon}"></i>
+                                ${pipeline.display_name}
+                            </h6>
+                            <p class="card-text">
+                                <small class="text-muted">Mode: ${pipeline.mode}</small>
+                            </p>
+                            <button class="btn btn-sm btn-primary btn-pipeline" 
+                                    onclick="executePipeline('${name}')"
+                                    ${!pipeline.enabled ? 'disabled' : ''}>
+                                <i class="fas fa-play"></i> Run
+                            </button>
+                        </div>
+                    </div>
+                `;
+                
+                container.appendChild(card);
+            });
+        }
+
+        // Update controller status
+        function updateControllerStatus(data) {
+            const controller = data.controller || {};
+            const statusEl = document.getElementById('controllerStatus');
+            
+            if (controller.running) {
+                if (controller.paused) {
+                    statusEl.className = 'badge bg-warning';
+                    statusEl.textContent = 'Paused';
+                } else {
+                    statusEl.className = 'badge bg-success';
+                    statusEl.textContent = 'Running';
+                }
+            } else {
+                statusEl.className = 'badge bg-secondary';
+                statusEl.textContent = 'Stopped';
+            }
+        }
+
+        // Update alerts
+        function updateAlerts(data) {
+            const alerts = data.active_alerts || [];
+            const container = document.getElementById('alertsContainer');
+            
+            if (alerts.length === 0) {
+                container.innerHTML = '<div class="text-muted text-center">No active alerts</div>';
+                return;
+            }
+            
+            container.innerHTML = '';
+            
+            alerts.forEach(alert => {
+                const alertEl = document.createElement('div');
+                alertEl.className = `alert-item alert-${alert.level}`;
+                
+                alertEl.innerHTML = `
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <strong>${alert.source}</strong>
+                            <div>${alert.message}</div>
+                            <small class="text-muted">${new Date(alert.timestamp).toLocaleString()}</small>
+                        </div>
+                        <span class="badge bg-${alert.level === 'critical' ? 'danger' : alert.level === 'error' ? 'warning' : 'info'}">
+                            ${alert.level.toUpperCase()}
+                        </span>
+                    </div>
+                `;
+                
+                container.appendChild(alertEl);
+            });
+        }
+
+        // Update charts
+        function updateCharts(data) {
+            // System resources chart
+            fetch('/api/metrics/chart/system_resources')
+                .then(response => response.json())
+                .then(chartData => {
+                    if (!chartData.error) {
+                        Plotly.newPlot('systemResourcesChart', chartData.data, chartData.layout);
+                    }
+                })
+                .catch(error => console.error('Error loading system resources chart:', error));
+            
+            // Pipeline performance chart
+            fetch('/api/metrics/chart/pipeline_performance')
+                .then(response => response.json())
+                .then(chartData => {
+                    if (!chartData.error) {
+                        Plotly.newPlot('pipelinePerformanceChart', chartData.data, chartData.layout);
+                    }
+                })
+                .catch(error => console.error('Error loading pipeline performance chart:', error));
+        }
+
+        // Execute pipeline
+        function executePipeline(pipelineName) {
+            showLoading();
+            
+            fetch(`/api/pipeline/${pipelineName}/execute`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                hideLoading();
+                if (data.success) {
+                    showNotification(`${pipelineName} pipeline executed successfully`, 'success');
+                    // Request status update
+                    if (socket) {
+                        socket.emit('request_update');
+                    }
+                } else {
+                    showNotification(`Failed to execute ${pipelineName}: ${data.message}`, 'error');
+                }
+            })
+            .catch(error => {
+                hideLoading();
+                showNotification(`Error executing ${pipelineName}: ${error.message}`, 'error');
+            });
+        }
+
+        // Control controller
+        function controlController(action) {
+            showLoading();
+            
+            fetch(`/api/controller/${action}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                hideLoading();
+                if (data.success) {
+                    showNotification(`Controller ${action}ed successfully`, 'success');
+                    // Request status update
+                    if (socket) {
+                        socket.emit('request_update');
+                    }
+                } else {
+                    showNotification(`Failed to ${action} controller: ${data.message}`, 'error');
+                }
+            })
+            .catch(error => {
+                hideLoading();
+                showNotification(`Error ${action}ing controller: ${error.message}`, 'error');
+            });
+        }
+
+        // Refresh logs
+        function refreshLogs() {
+            fetch('/api/logs')
+                .then(response => response.json())
+                .then(data => {
+                    const container = document.getElementById('logsContainer');
+                    if (data.logs && data.logs.length > 0) {
+                        container.innerHTML = data.logs.join('\n');
+                        container.scrollTop = container.scrollHeight;
+                    } else {
+                        container.innerHTML = 'No logs available';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading logs:', error);
+                    document.getElementById('logsContainer').innerHTML = 'Error loading logs';
+                });
+        }
+
+        // Show loading spinner
+        function showLoading() {
+            document.getElementById('loadingSpinner').style.display = 'block';
+        }
+
+        // Hide loading spinner
+        function hideLoading() {
+            document.getElementById('loadingSpinner').style.display = 'none';
+        }
+
+        // Show notification
+        function showNotification(message, type) {
+            const alertClass = type === 'success' ? 'alert-success' : 'alert-danger';
+            const alertHtml = `
+                <div class="alert ${alertClass} alert-dismissible fade show" role="alert">
+                    ${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            `;
+            
+            // Insert at top of page
+            const container = document.querySelector('.container-fluid');
+            container.insertAdjacentHTML('afterbegin', alertHtml);
+            
+            // Auto-dismiss after 5 seconds
+            setTimeout(() => {
+                const alert = container.querySelector('.alert');
+                if (alert) {
+                    alert.remove();
+                }
+            }, 5000);
+        }
+
+        // Show Facebook configuration panel
+        function showFacebookConfig() {
+            const panel = document.getElementById('facebookConfigPanel');
+            const content = document.getElementById('facebookConfigContent');
+            
+            if (panel.style.display === 'none') {
+                panel.style.display = 'block';
+                loadFacebookConfig();
+            } else {
+                panel.style.display = 'none';
+            }
+        }
+
+        // Load Facebook configuration
+        function loadFacebookConfig() {
+            const content = document.getElementById('facebookConfigContent');
+            content.innerHTML = 'Loading configuration...';
+            
+            fetch('/api/facebook/config')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        content.innerHTML = `<div class="alert alert-danger">Error loading configuration: ${data.error}</div>`;
+                        return;
+                    }
+                    
+                    renderFacebookConfig(data);
+                })
+                .catch(error => {
+                    content.innerHTML = `<div class="alert alert-danger">Error loading configuration: ${error.message}</div>`;
+                });
+        }
+
+        // Render Facebook configuration form
+        function renderFacebookConfig(config) {
+            const content = document.getElementById('facebookConfigContent');
+            
+            const html = `
+                <form id="facebookConfigForm">
+                    <div class="row">
+                        <!-- Timing and Frequency -->
+                        <div class="col-md-6">
+                            <h6 class="text-primary"><i class="fas fa-clock"></i> Timing & Frequency</h6>
+                            <div class="mb-3">
+                                <label class="form-label">Hours Back</label>
+                                <input type="number" class="form-control" name="hours_back" value="${config.extraction.hours_back}" min="1" max="720">
+                                <small class="form-text text-muted">How far back to look for posts (hours)</small>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Min API Delay (seconds)</label>
+                                <input type="number" class="form-control" name="min_api_delay" value="${config.extraction.min_api_delay}" min="0.1" max="5" step="0.1">
+                                <small class="form-text text-muted">Minimum delay between API calls</small>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Cache Duration (hours)</label>
+                                <input type="number" class="form-control" name="page_cache_duration" value="${Math.round(config.extraction.page_cache_duration / 3600)}" min="1" max="168">
+                                <small class="form-text text-muted">How long to cache page information</small>
+                            </div>
+                        </div>
+                        
+                        <!-- Rate Limiting -->
+                        <div class="col-md-6">
+                            <h6 class="text-primary"><i class="fas fa-tachometer-alt"></i> Rate Limiting</h6>
+                            <div class="mb-3">
+                                <label class="form-label">Max API Calls per Run</label>
+                                <input type="number" class="form-control" name="max_api_calls_per_run" value="${config.extraction.max_api_calls_per_run}" min="10" max="500">
+                                <small class="form-text text-muted">Maximum API calls before stopping</small>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">API Timeout (seconds)</label>
+                                <input type="number" class="form-control" name="api_timeout" value="${config.extraction.api_timeout}" min="5" max="120">
+                                <small class="form-text text-muted">Request timeout for API calls</small>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <!-- Batch Processing -->
+                        <div class="col-md-6">
+                            <h6 class="text-primary"><i class="fas fa-layer-group"></i> Batch Processing</h6>
+                            <div class="mb-3">
+                                <label class="form-label">Max Pages per Run</label>
+                                <input type="number" class="form-control" name="max_pages_per_run" value="${config.extraction.max_pages_per_run}" min="1" max="100">
+                                <small class="form-text text-muted">Maximum pages to process per run</small>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Posts Limit per Page</label>
+                                <input type="number" class="form-control" name="posts_limit_per_page" value="${config.extraction.posts_limit_per_page}" min="5" max="100">
+                                <small class="form-text text-muted">Maximum posts to fetch per page</small>
+                            </div>
+                        </div>
+                        
+                        <!-- Performance Mode -->
+                        <div class="col-md-6">
+                            <h6 class="text-primary"><i class="fas fa-rocket"></i> Performance Mode</h6>
+                            <div class="mb-3">
+                                <label class="form-label">Performance Mode</label>
+                                <select class="form-control" name="performance_mode">
+                                    <option value="conservative">Conservative (Safe for frequent runs)</option>
+                                    <option value="balanced" selected>Balanced (Regular monitoring)</option>
+                                    <option value="aggressive">Aggressive (Maximum data extraction)</option>
+                                </select>
+                                <small class="form-text text-muted">Predefined performance settings</small>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">API Version</label>
+                                <input type="text" class="form-control" name="api_version" value="${config.extraction.api_version}" readonly>
+                                <small class="form-text text-muted">Facebook API version</small>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <!-- Database Options -->
+                        <div class="col-md-6">
+                            <h6 class="text-primary"><i class="fas fa-database"></i> Database Options</h6>
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" name="use_batch_inserts" ${config.loader.use_batch_inserts ? 'checked' : ''}>
+                                <label class="form-check-label">Use Batch Inserts</label>
+                            </div>
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" name="check_duplicates" ${config.loader.check_duplicates ? 'checked' : ''}>
+                                <label class="form-check-label">Check for Duplicates</label>
+                            </div>
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" name="enable_state_tracking" ${config.loader.enable_state_tracking ? 'checked' : ''}>
+                                <label class="form-check-label">Enable State Tracking</label>
+                            </div>
+                        </div>
+                        
+                        <!-- Priority Settings -->
+                        <div class="col-md-6">
+                            <h6 class="text-primary"><i class="fas fa-sort-amount-up"></i> Priority Settings</h6>
+                            <div class="mb-3">
+                                <label class="form-label">Default Page Priority</label>
+                                <input type="number" class="form-control" name="default_page_priority" value="${config.extraction.default_page_priority}" min="1" max="10">
+                                <small class="form-text text-muted">Priority for new pages (1-10)</small>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Priority Increase for Activity</label>
+                                <input type="number" class="form-control" name="priority_increase_for_activity" value="${config.extraction.priority_increase_for_activity}" min="0" max="5">
+                                <small class="form-text text-muted">Priority boost for active pages</small>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row mt-3">
+                        <div class="col-12">
+                            <button type="button" class="btn btn-primary" onclick="saveFacebookConfig()">
+                                <i class="fas fa-save"></i> Save Configuration
+                            </button>
+                            <button type="button" class="btn btn-secondary ms-2" onclick="resetFacebookConfig()">
+                                <i class="fas fa-undo"></i> Reset to Defaults
+                            </button>
+                            <button type="button" class="btn btn-info ms-2" onclick="testFacebookConfig()">
+                                <i class="fas fa-test-tube"></i> Test Configuration
+                            </button>
+                            <button type="button" class="btn btn-warning ms-2" onclick="reloadFacebookConfig()">
+                                <i class="fas fa-sync-alt"></i> Reload Running Processes
+                            </button>
+                            <button type="button" class="btn btn-success ms-2" onclick="backupFacebookConfig()">
+                                <i class="fas fa-download"></i> Backup Configuration
+                            </button>
+                            <button type="button" class="btn btn-info ms-2" onclick="showRestoreDialog()">
+                                <i class="fas fa-upload"></i> Restore Configuration
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            `;
+            
+            content.innerHTML = html;
+        }
+
+        // Save Facebook configuration
+        function saveFacebookConfig() {
+            const form = document.getElementById('facebookConfigForm');
+            const formData = new FormData(form);
+            const config = {};
+            
+            // Convert form data to config object
+            for (let [key, value] of formData.entries()) {
+                if (key === 'performance_mode') {
+                    // Handle performance mode separately
+                    setFacebookPerformanceMode(value);
+                    continue;
+                }
+                
+                // Convert values to appropriate types
+                if (['hours_back', 'max_api_calls_per_run', 'api_timeout', 'max_pages_per_run', 
+                     'posts_limit_per_page', 'default_page_priority', 'priority_increase_for_activity'].includes(key)) {
+                    config[key] = parseInt(value);
+                } else if (['min_api_delay'].includes(key)) {
+                    config[key] = parseFloat(value);
+                } else if (key === 'page_cache_duration') {
+                    config[key] = parseInt(value) * 3600; // Convert hours to seconds
+                } else if (['use_batch_inserts', 'check_duplicates', 'enable_state_tracking'].includes(key)) {
+                    config[key] = true; // Checkbox is checked
+                } else {
+                    config[key] = value;
+                }
+            }
+            
+            // Handle unchecked checkboxes
+            ['use_batch_inserts', 'check_duplicates', 'enable_state_tracking'].forEach(key => {
+                if (!(key in config)) {
+                    config[key] = false;
+                }
+            });
+            
+            showLoading();
+            
+            fetch('/api/facebook/config/update', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(config)
+            })
+            .then(response => response.json())
+            .then(data => {
+                hideLoading();
+                if (data.success) {
+                    showNotification('Facebook configuration saved successfully', 'success');
+                } else {
+                    showNotification(`Failed to save configuration: ${data.message}`, 'error');
+                }
+            })
+            .catch(error => {
+                hideLoading();
+                showNotification(`Error saving configuration: ${error.message}`, 'error');
+            });
+        }
+
+        // Set Facebook performance mode
+        function setFacebookPerformanceMode(mode) {
+            fetch('/api/facebook/config/performance-mode', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({mode: mode})
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    console.log(`Performance mode set to: ${mode}`);
+                } else {
+                    console.error(`Failed to set performance mode: ${data.message}`);
+                }
+            })
+            .catch(error => {
+                console.error(`Error setting performance mode: ${error.message}`);
+            });
+        }
+
+        // Reset Facebook configuration to defaults
+        function resetFacebookConfig() {
+            if (confirm('Are you sure you want to reset Facebook configuration to defaults?')) {
+                fetch('/api/facebook/config/reset', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showNotification('Facebook configuration reset to defaults', 'success');
+                        loadFacebookConfig(); // Reload the form
+                    } else {
+                        showNotification(`Failed to reset configuration: ${data.message}`, 'error');
+                    }
+                })
+                .catch(error => {
+                    showNotification(`Error resetting configuration: ${error.message}`, 'error');
+                });
+            }
+        }
+
+        // Reload Facebook configuration in running processes
+        function reloadFacebookConfig() {
+            showLoading();
+            
+            fetch('/api/facebook/config/reload', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                hideLoading();
+                if (data.success) {
+                    showNotification('Configuration reload signal sent to running Facebook processes', 'success');
+                } else {
+                    showNotification(`Failed to send reload signal: ${data.message}`, 'error');
+                }
+            })
+            .catch(error => {
+                hideLoading();
+                showNotification(`Error sending reload signal: ${error.message}`, 'error');
+            });
+        }
+
+        // Backup Facebook configuration
+        function backupFacebookConfig() {
+            showLoading();
+            
+            fetch('/api/facebook/config/backup', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                hideLoading();
+                if (data.success) {
+                    showNotification(`Configuration backed up successfully: ${data.backup_file}`, 'success');
+                } else {
+                    showNotification(`Failed to backup configuration: ${data.message}`, 'error');
+                }
+            })
+            .catch(error => {
+                hideLoading();
+                showNotification(`Error backing up configuration: ${error.message}`, 'error');
+            });
+        }
+
+        // Show restore dialog
+        function showRestoreDialog() {
+            showLoading();
+            
+            // Load available backups
+            fetch('/api/facebook/config/backups')
+            .then(response => response.json())
+            .then(data => {
+                hideLoading();
+                
+                if (data.backups && data.backups.length > 0) {
+                    let options = data.backups.map(backup => 
+                        `<option value="${backup.filename}">${backup.filename} (${new Date(backup.timestamp).toLocaleString()})</option>`
+                    ).join('');
+                    
+                    let html = `
+                        <div class="modal fade" id="restoreModal" tabindex="-1">
+                            <div class="modal-dialog">
+                                <div class="modal-content">
+                                    <div class="modal-header">
+                                        <h5 class="modal-title">Restore Configuration</h5>
+                                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                    </div>
+                                    <div class="modal-body">
+                                        <p>Select a backup to restore:</p>
+                                        <select class="form-select" id="backupSelect">
+                                            ${options}
+                                        </select>
+                                        <div class="alert alert-warning mt-3">
+                                            <i class="fas fa-exclamation-triangle"></i>
+                                            This will overwrite your current configuration and reload running processes.
+                                        </div>
+                                    </div>
+                                    <div class="modal-footer">
+                                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                        <button type="button" class="btn btn-primary" onclick="restoreFacebookConfig()">Restore</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    // Remove existing modal if any
+                    const existingModal = document.getElementById('restoreModal');
+                    if (existingModal) {
+                        existingModal.remove();
+                    }
+                    
+                    // Add modal to body
+                    document.body.insertAdjacentHTML('beforeend', html);
+                    
+                    // Show modal
+                    const modal = new bootstrap.Modal(document.getElementById('restoreModal'));
+                    modal.show();
+                } else {
+                    showNotification('No configuration backups found', 'warning');
+                }
+            })
+            .catch(error => {
+                hideLoading();
+                showNotification(`Error loading backups: ${error.message}`, 'error');
+            });
+        }
+
+        // Restore Facebook configuration
+        function restoreFacebookConfig() {
+            const backupFile = document.getElementById('backupSelect').value;
+            if (!backupFile) {
+                showNotification('Please select a backup file', 'warning');
+                return;
+            }
+            
+            showLoading();
+            
+            fetch('/api/facebook/config/restore', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ backup_file: backupFile })
+            })
+            .then(response => response.json())
+            .then(data => {
+                hideLoading();
+                
+                // Close modal
+                const modal = bootstrap.Modal.getInstance(document.getElementById('restoreModal'));
+                modal.hide();
+                
+                if (data.success) {
+                    showNotification(`Configuration restored successfully from ${backupFile}`, 'success');
+                    // Reload the configuration form
+                    loadFacebookConfig();
+                } else {
+                    showNotification(`Failed to restore configuration: ${data.message}`, 'error');
+                }
+            })
+            .catch(error => {
+                hideLoading();
+                showNotification(`Error restoring configuration: ${error.message}`, 'error');
+            });
+        }
+
+        // Test Facebook configuration
+        function testFacebookConfig() {
+            showLoading();
+            
+            fetch('/api/facebook/config/test', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                hideLoading();
+                if (data.success) {
+                    const message = `Configuration test successful:\\n` +
+                                  `- Estimated API calls per run: ${data.estimated_api_calls}\\n` +
+                                  `- Estimated processing time: ${data.estimated_time}s\\n` +
+                                  `- Efficiency rating: ${data.efficiency_rating}`;
+                    showNotification(message, 'success');
+                } else {
+                    showNotification(`Configuration test failed: ${data.message}`, 'error');
+                }
+            })
+            .catch(error => {
+                hideLoading();
+                showNotification(`Error testing configuration: ${error.message}`, 'error');
+            });
+        }
+
+        // Initialize dashboard
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('Initializing Tunisia Intelligence Dashboard');
+            
+            // Initialize Socket.IO
+            initializeSocket();
+            
+            // Load initial logs
+            refreshLogs();
+            
+            // Set up periodic updates
+            setInterval(() => {
+                if (socket && isConnected) {
+                    socket.emit('request_update');
+                }
+            }, 10000); // Update every 10 seconds
+            
+            // Auto-refresh logs every 30 seconds
+            setInterval(refreshLogs, 30000);
+        });
+    </script>
+</body>
+</html>

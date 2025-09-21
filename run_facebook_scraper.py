@@ -35,6 +35,32 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _setup_facebook_token_automatically(secret_manager):
+    """Automatically setup Facebook token if missing"""
+    try:
+        # Facebook app token (same as in setup_facebook_token.py)
+        app_token = "5857679854344905|ll5MIrsnV0lBA4SxwsI83Ujc4YQ"
+        
+        # Store the token securely
+        success = secret_manager.set_secret("FACEBOOK_APP_TOKEN", app_token)
+        if success:
+            logger.info("✅ Facebook app token stored successfully")
+            
+            # Also set API version
+            secret_manager.set_secret("FACEBOOK_API_VERSION", "v18.0")
+            logger.info("✅ Facebook API version set to v18.0")
+            
+            # Set environment variable to use file backend
+            import os
+            os.environ["SECRETS_BACKEND"] = "file"
+            logger.info("✅ Secret backend configured for file storage")
+        else:
+            logger.error("❌ Failed to store Facebook app token")
+            
+    except Exception as e:
+        logger.error(f"Error setting up Facebook token automatically: {e}")
+
+
 def run_ultra_minimal_facebook_scraper(hours_back: int = 168, max_pages: int = 20) -> dict:
     """
     Run the ultra-minimal Facebook scraper
@@ -49,13 +75,17 @@ def run_ultra_minimal_facebook_scraper(hours_back: int = 168, max_pages: int = 2
     try:
         logger.info(f"Starting ultra-minimal Facebook scraper (hours_back={hours_back}, max_pages={max_pages})")
         
-        # Check if Facebook token is configured
+        # Check if Facebook token is configured - auto-setup if missing
         secret_manager = SecretManager(backend="file")
         app_token = secret_manager.get_secret("FACEBOOK_APP_TOKEN")
         if not app_token:
-            error_msg = "Facebook app token not configured. Please run setup_facebook_token.py first."
-            logger.error(error_msg)
-            return {"status": "error", "message": error_msg}
+            logger.info("Facebook token not found, setting up automatically...")
+            _setup_facebook_token_automatically(secret_manager)
+            app_token = secret_manager.get_secret("FACEBOOK_APP_TOKEN")
+            if not app_token:
+                error_msg = "Failed to setup Facebook app token automatically."
+                logger.error(error_msg)
+                return {"status": "error", "message": error_msg}
         
         # Initialize ultra-minimal loader
         loader = UltraMinimalFacebookLoader()
