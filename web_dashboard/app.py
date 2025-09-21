@@ -28,12 +28,37 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 # Flask and web dependencies
-from flask import Flask, render_template, request, jsonify, redirect, url_for, flash
+from flask import Flask, render_template, jsonify, request
 from flask_socketio import SocketIO, emit
-import plotly.graph_objs as go
-import plotly.utils
+import logging
 import json
+import time
 from datetime import datetime
+import threading
+import psutil
+import os
+import sys
+
+# Plotly for chart generation
+try:
+    import plotly.graph_objects as go
+    import plotly.utils
+    PLOTLY_AVAILABLE = True
+except ImportError:
+    PLOTLY_AVAILABLE = False
+    logging.warning("Plotly not available - charts will be disabled")
+
+# Import AI configuration manager
+try:
+    from ai_config_manager import ai_config_bp, AIConfigManager
+    AI_CONFIG_AVAILABLE = True
+except ImportError:
+    try:
+        from .ai_config_manager import ai_config_bp, AIConfigManager
+        AI_CONFIG_AVAILABLE = True
+    except ImportError:
+        AI_CONFIG_AVAILABLE = False
+        logging.warning("AI configuration manager not available")
 
 # Import Tunisia Intelligence components
 from config.unified_control import get_unified_control, reload_unified_control
@@ -67,6 +92,13 @@ app.secret_key = 'tunisia_intelligence_dashboard_2024'
 app.json_encoder = DateTimeEncoder
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
+# Register AI configuration blueprint if available
+if AI_CONFIG_AVAILABLE:
+    app.register_blueprint(ai_config_bp)
+    logger.info("AI configuration blueprint registered")
+else:
+    logger.warning("AI configuration blueprint not available")
+
 # Global instances
 controller_instance = None
 monitor_instance = None
@@ -82,6 +114,7 @@ class DashboardManager:
         self.controller = None
         self.monitor = None
         self.cli = UnifiedControlCLI()
+        self.ai_config_manager = AIConfigManager() if AI_CONFIG_AVAILABLE else None
         self.last_update = datetime.now()
         self.update_interval = 5  # seconds
         
@@ -139,6 +172,14 @@ class DashboardManager:
                 status['system_health'] = dashboard_data.get('system_health', {})
                 status['active_alerts'] = dashboard_data.get('active_alerts', [])
                 status['pipeline_summaries'] = dashboard_data.get('pipeline_summaries', {})
+            
+            # AI Configuration status
+            if self.ai_config_manager:
+                try:
+                    status['ai_configuration'] = self.ai_config_manager.get_dashboard_data()
+                except Exception as e:
+                    logger.error(f"Error getting AI configuration data: {e}")
+                    status['ai_configuration'] = {'error': str(e)}
             
             return status
             
@@ -336,6 +377,9 @@ def api_get_logs():
 def api_get_chart_data(chart_type):
     """API endpoint to get chart data."""
     try:
+        if not PLOTLY_AVAILABLE:
+            return jsonify({'error': 'Plotly not available - charts disabled'})
+            
         if not dashboard_manager.monitor:
             return jsonify({'error': 'Monitor not initialized'})
         

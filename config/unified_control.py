@@ -128,19 +128,19 @@ class FacebookControlSettings(BaseSettings):
 
 
 class AIEnrichmentControlSettings(BaseSettings):
-    """AI enrichment processing control settings."""
+    """AI enrichment processing control settings - Legacy wrapper for new AI config system."""
     
     # Pipeline Control
     enabled: bool = Field(True, env="AI_ENRICHMENT_ENABLED", description="Enable AI enrichment pipeline")
     mode: PipelineMode = Field(PipelineMode.BATCH, env="AI_ENRICHMENT_MODE", description="AI enrichment mode")
     
-    # Model Configuration
+    # Model Configuration (maintained for backward compatibility)
     ollama_url: str = Field("http://localhost:11434", env="OLLAMA_URL", description="Ollama server URL")
     model_name: str = Field("qwen2.5:7b", env="AI_MODEL_NAME", description="AI model name")
     model_temperature: float = Field(0.1, env="AI_MODEL_TEMPERATURE", description="Model temperature")
     max_tokens: int = Field(1024, env="AI_MAX_TOKENS", description="Max tokens per request")
     
-    # Processing Limits
+    # Processing Limits (maintained for backward compatibility)
     batch_size: int = Field(10, env="AI_BATCH_SIZE", description="Items per batch")
     max_items_per_run: int = Field(100, env="AI_MAX_ITEMS_PER_RUN", description="Max items per run")
     max_concurrent_requests: int = Field(3, env="AI_MAX_CONCURRENT", description="Max concurrent AI requests")
@@ -174,11 +174,23 @@ class AIEnrichmentControlSettings(BaseSettings):
     source_languages: List[str] = Field(["ar", "fr", "en"], env="AI_SOURCE_LANGUAGES", description="Source languages")
     target_language: str = Field("fr", env="AI_TARGET_LANGUAGE", description="Target language for translation")
     
+    # New Configuration Integration
+    use_advanced_config: bool = Field(True, env="AI_USE_ADVANCED_CONFIG", description="Use advanced AI configuration system")
+    
     @validator('batch_size')
     def validate_batch_size(cls, v):
         if v < 1 or v > 100:
             raise ValueError('Batch size must be between 1 and 100')
         return v
+    
+    def get_advanced_config(self):
+        """Get the advanced AI enrichment configuration."""
+        try:
+            from config.ai_enrichment_config import get_ai_enrichment_config
+            return get_ai_enrichment_config()
+        except ImportError:
+            logger.warning("Advanced AI configuration not available, using legacy settings")
+            return None
 
 
 class VectorizationControlSettings(BaseSettings):

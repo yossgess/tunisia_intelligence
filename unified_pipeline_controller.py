@@ -260,6 +260,9 @@ class PipelineExecutor:
     def _execute_facebook_pipeline(self, **kwargs):
         """Execute Facebook extraction and loading using existing Facebook loader."""
         try:
+            # Display Facebook configuration parameters
+            self._display_facebook_configuration()
+            
             # Use the existing Facebook loader main function
             from facebook_loader import main as facebook_main
             logger.info("Starting Facebook pipeline...")
@@ -348,6 +351,59 @@ class PipelineExecutor:
         """Cancel pipeline execution."""
         self.cancelled = True
         self.metrics.status = PipelineStatus.CANCELLED
+    
+    def _display_facebook_configuration(self):
+        """Display Facebook configuration parameters in terminal."""
+        try:
+            from config.facebook_config import get_facebook_config
+            
+            logger.info("📋 Facebook Pipeline Configuration:")
+            logger.info("=" * 50)
+            
+            # Get current Facebook configuration
+            config = get_facebook_config()
+            
+            # Display extraction settings
+            logger.info("🔧 Extraction Settings:")
+            logger.info(f"  • Max pages per run: {config.extraction.max_pages_per_run}")
+            logger.info(f"  • Max API calls per run: {config.extraction.max_api_calls_per_run}")
+            logger.info(f"  • Min API delay: {config.extraction.min_api_delay}s")
+            logger.info(f"  • API version: {config.extraction.api_version}")
+            logger.info(f"  • Hours back: {config.extraction.hours_back}")
+            
+            # Display content filtering
+            logger.info("🎯 Content Filtering:")
+            logger.info(f"  • Min content length: {config.content_filtering.min_content_length}")
+            logger.info(f"  • Max content length: {config.content_filtering.max_content_length}")
+            logger.info(f"  • Skip empty posts: {config.content_filtering.skip_empty_posts}")
+            logger.info(f"  • Skip link-only posts: {config.content_filtering.skip_link_only_posts}")
+            
+            # Display rate limiting
+            logger.info("⏱️ Rate Limiting:")
+            logger.info(f"  • Requests per minute: {config.rate_limiting.requests_per_minute}")
+            logger.info(f"  • Requests per hour: {config.rate_limiting.requests_per_hour}")
+            logger.info(f"  • Burst limit: {config.rate_limiting.burst_limit}")
+            logger.info(f"  • Cooldown period: {config.rate_limiting.cooldown_period_minutes}min")
+            
+            # Display processing settings
+            logger.info("⚙️ Processing Settings:")
+            logger.info(f"  • Batch size: {config.processing.batch_size}")
+            logger.info(f"  • Max retries: {config.processing.max_retries}")
+            logger.info(f"  • Retry delay: {config.processing.retry_delay_seconds}s")
+            logger.info(f"  • Timeout: {config.processing.timeout_seconds}s")
+            logger.info(f"  • Enable duplicate detection: {config.processing.enable_duplicate_detection}")
+            
+            # Display monitoring settings
+            logger.info("📊 Monitoring Settings:")
+            logger.info(f"  • Log level: {config.monitoring.log_level}")
+            logger.info(f"  • Enable metrics: {config.monitoring.enable_metrics}")
+            logger.info(f"  • Metrics interval: {config.monitoring.metrics_interval_seconds}s")
+            logger.info(f"  • Enable alerts: {config.monitoring.enable_alerts}")
+            
+            logger.info("=" * 50)
+            
+        except Exception as e:
+            logger.error(f"❌ Error displaying Facebook configuration: {e}")
 
 
 class UnifiedPipelineController:
