@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 Tunisia Intelligence Web Dashboard
 
@@ -62,9 +62,9 @@ except ImportError:
 
 # Import Tunisia Intelligence components
 from config.unified_control import get_unified_control, reload_unified_control
-from unified_pipeline_controller import UnifiedPipelineController
+from src.core.unified_pipeline_controller import UnifiedPipelineController
 from monitoring.unified_monitoring import get_unified_monitor
-from unified_control_cli import UnifiedControlCLI
+from src.core.unified_control_cli import UnifiedControlCLI
 from config.facebook_config import (
     get_facebook_config, 
     update_facebook_config, 
