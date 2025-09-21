@@ -186,6 +186,18 @@ class EnrichmentResult(BaseModel):
         
         return v
 
+class ProcessingResult(BaseModel):
+    """Generic result model for individual processing tasks."""
+    task_name: str
+    status: ProcessingStatus
+    result: Optional[Any] = None
+    error: Optional[str] = None
+    processing_time: Optional[float] = None
+    confidence: Optional[float] = None
+    
+    class Config:
+        use_enum_values = True
+
 class BatchProcessingResult(BaseModel):
     """Result model for batch processing operations."""
     total_items: int

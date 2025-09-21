@@ -13,6 +13,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import asyncio
 
 from ..core.ollama_client import OllamaClient, OllamaConfig
+from ..core.vector_service import VectorService, VectorConfig
+from ..core.vector_database import VectorDatabase
 from ..processors.sentiment_analyzer import SentimentAnalyzer
 from ..processors.entity_extractor import EntityExtractor
 from ..processors.keyword_extractor import KeywordExtractor
@@ -24,7 +26,7 @@ from ..models.enrichment_models import (
 )
 
 # Import existing database components
-from ...config.database import DatabaseManager, Article
+from config.database import DatabaseManager, Article
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +64,11 @@ class EnrichmentService:
         self.keyword_extractor = KeywordExtractor(self.ollama_client, self.config.get('keywords', {}))
         self.category_classifier = CategoryClassifier(self.ollama_client, self.config.get('categories', {}))
         
+        # Initialize vector services
+        vector_config = VectorConfig(**self.config.get('vector', {}))
+        self.vector_service = VectorService(vector_config)
+        self.vector_database = VectorDatabase()
+        
         # Service configuration
         self.default_config = {
             'parallel_processing': True,
@@ -70,7 +77,9 @@ class EnrichmentService:
             'retry_failed': True,
             'max_retries': 2,
             'save_to_database': True,
-            'update_existing': True
+            'update_existing': True,
+            'enable_vectorization': True,  # Enable vector generation by default
+            'store_vectors': True  # Store vectors in database by default
         }
         
         self.config = {**self.default_config, **self.config}
@@ -106,7 +115,8 @@ class EnrichmentService:
             'enable_entities': True,
             'enable_keywords': True,
             'enable_categories': True,
-            'enable_summary': False
+            'enable_summary': False,
+            'enable_vectorization': self.config.get('enable_vectorization', True)
         }
         options = {**default_options, **(options or {})}
         
@@ -191,6 +201,9 @@ class EnrichmentService:
         
         if options.get('enable_categories'):
             tasks.append(('categories', self.category_classifier.process, content))
+        
+        if options.get('enable_vectorization'):
+            tasks.append(('vectorization', self._generate_vector, content))
         
         # Execute tasks in parallel
         with ThreadPoolExecutor(max_workers=self.config['max_workers']) as executor:
@@ -300,6 +313,19 @@ class EnrichmentService:
                 logger.error(f"Category classification failed: {e}")
                 failed_tasks += 1
         
+        # Vector generation
+        if options.get('enable_vectorization'):
+            try:
+                vector_result = self._generate_vector(content)
+                if vector_result.status == ProcessingStatus.SUCCESS:
+                    self._apply_task_result(result, 'vectorization', vector_result)
+                    completed_tasks += 1
+                else:
+                    failed_tasks += 1
+            except Exception as e:
+                logger.error(f"Vector generation failed: {e}")
+                failed_tasks += 1
+        
         # Determine overall status
         if completed_tasks > 0:
             result.status = ProcessingStatus.SUCCESS if failed_tasks == 0 else ProcessingStatus.PARTIAL
@@ -372,6 +398,16 @@ class EnrichmentService:
                 category_path=task_result.data.get('category_path')
             )
         
+        elif task_name == 'vectorization' and task_result.data:
+            # Store vector information in the result
+            result.vector_data = {
+                'vector': task_result.data.get('vector'),
+                'content_hash': task_result.data.get('content_hash'),
+                'language': task_result.data.get('language'),
+                'processing_time': task_result.data.get('processing_time'),
+                'chunks_processed': task_result.data.get('chunks_processed')
+            }
+        
         # Update language detection
         if hasattr(task_result, 'data') and task_result.data:
             detected_lang = task_result.data.get('language_detected')
@@ -429,6 +465,13 @@ class EnrichmentService:
         if result.summary:
             update_data['summary'] = result.summary
         
+        # Update vector data if available
+        if hasattr(result, 'vector_data') and result.vector_data:
+            if result.vector_data.get('vector'):
+                update_data['embedding'] = result.vector_data['vector']
+            if result.vector_data.get('content_hash'):
+                update_data['content_hash'] = result.vector_data['content_hash']
+        
         if update_data:
             try:
                 # Use Supabase client to update article
@@ -458,6 +501,13 @@ class EnrichmentService:
         if result.summary:
             update_data['summary'] = result.summary
         
+        # Update vector data if available
+        if hasattr(result, 'vector_data') and result.vector_data:
+            if result.vector_data.get('vector'):
+                update_data['embedding'] = result.vector_data['vector']
+            if result.vector_data.get('content_hash'):
+                update_data['content_hash'] = result.vector_data['content_hash']
+        
         if update_data:
             try:
                 response = self.db_manager.client.table("social_media_posts") \
@@ -478,6 +528,13 @@ class EnrichmentService:
         # Update sentiment
         if result.sentiment:
             update_data['sentiment_score'] = result.sentiment.sentiment_score
+        
+        # Update vector data if available
+        if hasattr(result, 'vector_data') and result.vector_data:
+            if result.vector_data.get('vector'):
+                update_data['embedding'] = result.vector_data['vector']
+            if result.vector_data.get('content_hash'):
+                update_data['content_hash'] = result.vector_data['content_hash']
         
         if update_data:
             try:
@@ -507,7 +564,8 @@ class EnrichmentService:
             'enable_entities': request.enable_entities,
             'enable_keywords': request.enable_keywords,
             'enable_categories': request.enable_categories,
-            'enable_summary': request.enable_summary
+            'enable_summary': request.enable_summary,
+            'enable_vectorization': getattr(request, 'enable_vectorization', True)
         }
         
         return self.enrich_content(
@@ -532,7 +590,8 @@ class EnrichmentService:
                 'sentiment_analyzer': True,
                 'entity_extractor': True,
                 'keyword_extractor': True,
-                'category_classifier': True
+                'category_classifier': True,
+                'vector_service': self.vector_service.health_check()
             },
             'configuration': {
                 'parallel_processing': self.config['parallel_processing'],
@@ -601,3 +660,110 @@ class EnrichmentService:
             results['categories'] = {'status': 'error', 'error': str(e)}
         
         return results
+    
+    def _generate_vector(self, content: str):
+        """
+        Generate vector for content using the vector service.
+        
+        Args:
+            content: Text content to vectorize
+            
+        Returns:
+            Processing result with vector data
+        """
+        from ..models.enrichment_models import ProcessingResult, ProcessingStatus
+        
+        try:
+            # Generate vector using vector service
+            vector_result = self.vector_service.generate_vector(
+                content=content,
+                content_id="temp",  # Temporary ID for processing
+                content_type="text"
+            )
+            
+            if vector_result.vector:
+                return ProcessingResult(
+                    status=ProcessingStatus.SUCCESS,
+                    confidence=1.0,  # Vector generation is deterministic
+                    processing_time=vector_result.processing_time,
+                    data={
+                        'vector': vector_result.vector,
+                        'content_hash': vector_result.content_hash,
+                        'language': vector_result.language,
+                        'processing_time': vector_result.processing_time,
+                        'chunks_processed': vector_result.chunks_processed
+                    }
+                )
+            else:
+                return ProcessingResult(
+                    status=ProcessingStatus.FAILED,
+                    confidence=0.0,
+                    processing_time=vector_result.processing_time,
+                    error=vector_result.error or "Vector generation failed"
+                )
+                
+        except Exception as e:
+            logger.error(f"Vector generation error: {e}")
+            return ProcessingResult(
+                status=ProcessingStatus.FAILED,
+                confidence=0.0,
+                processing_time=0.0,
+                error=str(e)
+            )
+    
+    def find_similar_content(
+        self,
+        content: str,
+        content_types: Optional[List[str]] = None,
+        limit: int = 5,
+        similarity_threshold: float = 0.7
+    ) -> List[Dict[str, Any]]:
+        """
+        Find content similar to the provided text.
+        
+        Args:
+            content: Text to find similar content for
+            content_types: Types of content to search in
+            limit: Maximum number of results
+            similarity_threshold: Minimum similarity score
+            
+        Returns:
+            List of similar content items
+        """
+        try:
+            # Generate vector for the input content
+            vector_result = self.vector_service.generate_vector(
+                content=content,
+                content_id="query",
+                content_type="query"
+            )
+            
+            if not vector_result.vector:
+                logger.error("Failed to generate vector for similarity search")
+                return []
+            
+            # Search for similar content
+            similar_results = self.vector_database.similarity_search(
+                query_vector=vector_result.vector,
+                content_types=content_types,
+                limit=limit,
+                similarity_threshold=similarity_threshold,
+                include_content=True
+            )
+            
+            # Convert to dictionary format
+            results = []
+            for result in similar_results:
+                results.append({
+                    'content_id': result.content_id,
+                    'content_type': result.content_type,
+                    'similarity_score': result.similarity_score,
+                    'content_preview': result.content_preview,
+                    'metadata': result.metadata
+                })
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"Similarity search error: {e}")
+            return []

@@ -18,7 +18,7 @@ from ..models.enrichment_models import (
 )
 
 # Import existing database components
-from ...config.database import DatabaseManager
+from config.database import DatabaseManager
 
 logger = logging.getLogger(__name__)
 
