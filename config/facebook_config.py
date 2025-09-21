@@ -22,7 +22,7 @@ class FacebookExtractionConfig:
     
     # === TIMING AND FREQUENCY PARAMETERS ===
     # How far back to look for posts (in hours)
-    hours_back: int = 168  # 7 days default
+    hours_back: int = 336  # 14 days default
     
     # Minimum delay between API calls (seconds)
     min_api_delay: float = 0.3
@@ -39,10 +39,10 @@ class FacebookExtractionConfig:
     
     # === BATCH PROCESSING PARAMETERS ===
     # Maximum pages to process per run
-    max_pages_per_run: int = 53  # All Facebook sources
+    max_pages_per_run: int = 999  # Unlimited - process all Facebook sources
     
     # Maximum posts to fetch per page per API call
-    posts_limit_per_page: int = 25
+    posts_limit_per_page: int = 100  # Increased limit for comprehensive data collection
     
     # === DATA EXTRACTION SCOPE ===
     # Facebook API version to use
@@ -162,10 +162,10 @@ class FacebookScraperConfig:
     
     # === COMMAND LINE DEFAULTS ===
     # Default hours back for CLI
-    default_hours_back: int = 168  # 7 days
+    default_hours_back: int = 336  # 14 days
     
     # Default max pages for CLI
-    default_max_pages: int = 20
+    default_max_pages: int = 999  # Unlimited - process all pages
     
     # === ANALYSIS AND REPORTING ===
     # Whether to show detailed analysis by default
@@ -220,11 +220,11 @@ class FacebookPipelineConfig:
     def from_environment(cls) -> 'FacebookPipelineConfig':
         """Create configuration from environment variables"""
         extraction_config = FacebookExtractionConfig(
-            hours_back=int(os.getenv('FB_HOURS_BACK', 168)),
+            hours_back=int(os.getenv('FB_HOURS_BACK', 336)),
             min_api_delay=float(os.getenv('FB_MIN_API_DELAY', 0.3)),
             max_api_calls_per_run=int(os.getenv('FB_MAX_API_CALLS', 100)),
-            max_pages_per_run=int(os.getenv('FB_MAX_PAGES', 53)),
-            posts_limit_per_page=int(os.getenv('FB_POSTS_LIMIT', 25)),
+            max_pages_per_run=int(os.getenv('FB_MAX_PAGES', 999)),
+            posts_limit_per_page=int(os.getenv('FB_POSTS_LIMIT', 100)),
             api_version=os.getenv('FB_API_VERSION', 'v18.0'),
             api_timeout=int(os.getenv('FB_API_TIMEOUT', 30)),
             page_cache_duration=int(os.getenv('FB_CACHE_DURATION', 86400)),
@@ -241,8 +241,8 @@ class FacebookPipelineConfig:
         )
         
         scraper_config = FacebookScraperConfig(
-            default_hours_back=int(os.getenv('FB_DEFAULT_HOURS_BACK', 168)),
-            default_max_pages=int(os.getenv('FB_DEFAULT_MAX_PAGES', 20)),
+            default_hours_back=int(os.getenv('FB_DEFAULT_HOURS_BACK', 336)),
+            default_max_pages=int(os.getenv('FB_DEFAULT_MAX_PAGES', 999)),
             show_analysis_by_default=os.getenv('FB_SHOW_ANALYSIS', 'false').lower() == 'true',
             verbose_by_default=os.getenv('FB_VERBOSE', 'false').lower() == 'true',
         )
