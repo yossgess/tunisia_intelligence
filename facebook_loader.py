@@ -116,7 +116,7 @@ class UltraMinimalFacebookLoader:
             logger.error(f"Error fetching Facebook sources: {e}")
             return []
     
-    def extract_and_load_posts_ultra_minimal(self, hours_back: int = 24) -> Dict[str, Any]:
+    def extract_and_load_posts_ultra_minimal(self, hours_back: int = 168) -> Dict[str, Any]:
         """
         Ultra-minimal extraction and loading with maximum efficiency
         """
@@ -653,8 +653,8 @@ def main():
     try:
         loader = UltraMinimalFacebookLoader()
         
-        # Load posts with ultra-minimal extraction
-        result = loader.extract_and_load_posts_ultra_minimal(hours_back=24)
+        # Load posts with ultra-minimal extraction (last 7 days)
+        result = loader.extract_and_load_posts_ultra_minimal(hours_back=168)
         
         print("Ultra-Minimal Facebook Loading Results:")
         print(f"Status: {result.get('status')}")

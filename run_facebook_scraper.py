@@ -35,7 +35,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def run_ultra_minimal_facebook_scraper(hours_back: int = 24, max_pages: int = 20) -> dict:
+def run_ultra_minimal_facebook_scraper(hours_back: int = 168, max_pages: int = 20) -> dict:
     """
     Run the ultra-minimal Facebook scraper
     
@@ -164,8 +164,8 @@ def main():
     parser.add_argument(
         "--hours-back",
         type=int,
-        default=24,
-        help="Number of hours to look back for posts (default: 24)"
+        default=168,
+        help="Number of hours to look back for posts (default: 168 - 7 days)"
     )
     
     parser.add_argument(
